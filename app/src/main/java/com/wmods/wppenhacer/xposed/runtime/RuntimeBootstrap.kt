@@ -213,6 +213,7 @@ object RuntimeBootstrap {
             if (published) RuntimeStageStatus.READY else RuntimeStageStatus.FAILED,
             if (published) null else "Companion diagnostics provider unavailable"
         )
+        if (published) RuntimeDiagnosticsPublisher.publish(application)
     }
 
     private fun isSupportedVersion(application: Application, version: String): Boolean {
