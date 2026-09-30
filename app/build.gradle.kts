@@ -151,6 +151,12 @@ kotlin {
 }
 
 dependencies {
+    constraints {
+        // arscblamer 1.0 requests Guava with a dynamic "+" version.
+        // Pin the version resolved during the Phase 1 baseline audit.
+        implementation("com.google.guava:guava:33.7.2-jre")
+    }
+
     testImplementation("junit:junit:4.13.2")
     implementation(libs.colorpicker)
     implementation(files("libs/dexkit-android.aar"))
