@@ -100,15 +100,28 @@ timeout --signal=TERM --kill-after=5s 20m \
 
 ## Current build verification status
 
-The recovery executor had no prior Gradle or Android caches. The pinned Gradle 9.6.1 distribution was fetched once with a 170-second transfer limit. Gradle then reached project configuration on JDK 17, proving that Foojay/JDK 21 provisioning was no longer involved.
+The clean baseline build passed in GitHub Actions after the fork's hosted runner supplied access to the required Android and Maven repositories. The workflow used the exact command documented above and retained all audited features.
 
-The final baseline build was attempted offline with a 180-second hard limit and failed after four seconds because AGP `9.3.1` was not cached. A bounded transport check to Google Maven timed out during proxy CONNECT. Exact unresolved artifact:
+| Evidence | Value |
+|---|---|
+| Repository | `Khxqi/WaEnhancer` |
+| Workflow | `Build WhatsApp` / `.github/workflows/build-whatsapp.yml` |
+| Run | `36787823996` |
+| Run URL | `https://github.com/Khxqi/WaEnhancer/actions/runs/36787823996` |
+| Result | `success` |
+| Built commit | `505b5d2066bbb127478b909f2a2969147d89d04f` |
+| Source tree | `03c492702722203433165a4864fbc2366e27a609` |
+| Runner | GitHub-hosted `ubuntu-24.04` |
+| JDK | Temurin `17.0.20+1` |
+| APK path | `app/build/outputs/apk/whatsapp/debug/WaEnhancer-1.6.0 (505B5D20).apk` |
+| APK size | `37119563` bytes |
+| APK SHA-256 | `0ba6f3ccfb4b59b4017ff9ce595e751b5a90167acea6d9a30a535b47aab8719d` |
+| Artifact | `WaEnhancer-whatsappDebug-505b5d2066bbb127478b909f2a2969147d89d04f` (ID `11130692713`) |
+| Artifact expiry | `2026-10-30T22:54:22Z` |
 
-```text
-com.android.application:com.android.application.gradle.plugin:9.3.1
-```
+The first branch run (`36787498258`) established that the current hosted image does not expose `sdkmanager` on `PATH`. Commit `505b5d20` makes the runner-independent minimum correction by invoking `${ANDROID_SDK_ROOT}/cmdline-tools/latest/bin/sdkmanager` explicitly. SDK installation and the subsequent clean build then passed.
 
-This is an external repository-access blocker in the current executor. It is not fixed by changing AGP or removing application features. No APK was produced in this recovery run.
+The local executor remains unable to reach Google Maven through its network path. GitHub Actions is therefore the authoritative clean Phase 1 build environment; no AGP or Gradle downgrade was made.
 
 ## Remaining non-reproducible/external inputs
 
@@ -118,8 +131,8 @@ This is an external repository-access blocker in the current executor. It is not
 - Default debug signing uses a machine-specific debug keystore, so APK signatures/hashes differ across machines.
 - DexKit provenance/license remains unresolved despite exact file hashes.
 
-## Expected APK path after a successful build
+## Verified APK path
 
 ```text
-app/build/outputs/apk/whatsapp/debug/WaEnhancer-1.6.0 (<GIT_SHA8>).apk
+app/build/outputs/apk/whatsapp/debug/WaEnhancer-1.6.0 (505B5D20).apk
 ```
