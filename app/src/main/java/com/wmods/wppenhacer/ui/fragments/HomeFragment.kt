@@ -32,6 +32,7 @@ import com.wmods.wppenhacer.utils.FilePicker
 import com.wmods.wppenhacer.utils.RootDiagnostics
 import com.wmods.wppenhacer.xposed.core.FeatureLoader
 import com.wmods.wppenhacer.xposed.utils.Utils
+import com.wmods.wppenhacer.xposed.runtime.RuntimeControl
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
@@ -56,14 +57,15 @@ class HomeFragment : BaseFragment() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
 
-        val intentFilter = IntentFilter("${BuildConfig.APPLICATION_ID}.RECEIVER_WPP")
+        val intentFilter = IntentFilter(RuntimeControl.ACTION_RUNTIME_STATE)
         ContextCompat.registerReceiver(requireContext(), object : BroadcastReceiver() {
             override fun onReceive(context: Context, intent: Intent) {
                 try {
-                    if (FeatureLoader.PACKAGE_WPP == intent.getStringExtra("PKG")) {
+                    val token = RuntimeControl.ensureToken(context)
+                    if (RuntimeControl.authenticate(intent, token) &&
+                        FeatureLoader.PACKAGE_WPP == intent.getStringExtra("PKG")
+                    ) {
                         receiverBroadcastWpp(context, intent)
-                    } else {
-                        receiverBroadcastBusiness(context, intent)
                     }
                 } catch (_: Exception) {
                 }
@@ -79,6 +81,8 @@ class HomeFragment : BaseFragment() {
         _binding = FragmentHomeBinding.inflate(inflater, container, false)
 
         checkStateWpp(requireActivity())
+        binding.status3.visibility = View.GONE
+        binding.rebootBtn2.visibility = View.GONE
 
         binding.rebootBtn.setOnClickListener { view ->
             animateClick(view)
@@ -95,11 +99,6 @@ class HomeFragment : BaseFragment() {
             }
         }
 
-        binding.rebootBtn2.setOnClickListener { view ->
-            animateClick(view)
-            App.instance.restartApp(FeatureLoader.PACKAGE_BUSINESS)
-            disableBusiness()
-        }
 
         binding.exportBtn.setOnClickListener { view ->
             animateClick(view)
@@ -214,7 +213,6 @@ class HomeFragment : BaseFragment() {
             prefs.all.keys.forEach { key -> remove(key) }
         }
         App.instance.restartApp(FeatureLoader.PACKAGE_WPP)
-        App.instance.restartApp(FeatureLoader.PACKAGE_BUSINESS)
         Utils.showToast(context.getString(R.string.configs_reset), Toast.LENGTH_SHORT)
     }
 
@@ -308,7 +306,6 @@ class HomeFragment : BaseFragment() {
                     withContext(Dispatchers.Main) {
                         Toast.makeText(context, context.getString(R.string.configs_imported), Toast.LENGTH_SHORT).show()
                         App.instance.restartApp(FeatureLoader.PACKAGE_WPP)
-                        App.instance.restartApp(FeatureLoader.PACKAGE_BUSINESS)
                     }
                 } catch (e: Exception) {
                     Log.e("importConfigs", e.message ?: "", e)
@@ -438,7 +435,9 @@ class HomeFragment : BaseFragment() {
     }
 
     private fun checkWpp(activity: FragmentActivity) {
-        val checkWpp = Intent("${BuildConfig.APPLICATION_ID}.CHECK_WPP")
+        val checkWpp = RuntimeControl.addToken(Intent(RuntimeControl.ACTION_CHECK).apply {
+            setPackage(FeatureLoader.PACKAGE_WPP)
+        }, activity)
         activity.sendBroadcast(checkWpp)
     }
 

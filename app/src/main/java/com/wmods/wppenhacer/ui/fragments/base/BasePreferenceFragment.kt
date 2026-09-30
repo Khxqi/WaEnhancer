@@ -28,7 +28,9 @@ import com.wmods.wppenhacer.App
 import com.wmods.wppenhacer.BuildConfig
 import com.wmods.wppenhacer.R
 import com.wmods.wppenhacer.preference.FloatSeekBarPreference
+import com.wmods.wppenhacer.xposed.core.FeatureLoader
 import com.wmods.wppenhacer.xposed.utils.Utils
+import com.wmods.wppenhacer.xposed.runtime.RuntimeControl
 import java.util.Locale
 import java.util.Objects
 import rikka.material.preference.MaterialSwitchPreference
@@ -152,7 +154,11 @@ abstract class BasePreferenceFragment : PreferenceFragmentCompat(),
     }
 
     override fun onSharedPreferenceChanged(sharedPreferences: SharedPreferences, key: String?) {
-        App.instance.sendBroadcast(Intent("${BuildConfig.APPLICATION_ID}.MANUAL_RESTART"))
+        RuntimeControl.makePreferencesReadable(App.instance)
+        val intent = RuntimeControl.addToken(Intent(RuntimeControl.ACTION_MANUAL_RESTART).apply {
+            setPackage(FeatureLoader.PACKAGE_WPP)
+        }, App.instance)
+        App.instance.sendBroadcast(intent)
         if (isAdded) updatePreferenceStates(key)
     }
 

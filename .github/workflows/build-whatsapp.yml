@@ -49,7 +49,7 @@ jobs:
         timeout-minutes: 20
         run: |
           timeout --signal=TERM --kill-after=30s 18m \
-            ./gradlew --no-daemon clean assembleWhatsappDebug
+            ./gradlew --no-daemon clean testWhatsappDebugUnitTest assembleWhatsappDebug
 
       - name: Verify and record APK
         id: apk

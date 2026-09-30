@@ -153,7 +153,6 @@ object WppCore {
         loadWADatabase()
         hookStatusToMessageMapper(loader)
         hookConversationUserJid(loader)
-        initBridge(Utils.application)
     }
 
     private fun hookConversationUserJid(loader: ClassLoader) {
@@ -682,15 +681,13 @@ object WppCore {
     @JvmStatic
     @Throws(Exception::class)
     fun getClientBridge(): WaeIIFace? {
+        if (client == null) return null
         if (!isBridgeConnected()) {
             synchronized(WppCore::class.java) {
                 if (!isBridgeConnected()) {
-                    if (client == null) {
-                        throw Exception("Bridge client not initialized")
-                    }
                     client?.tryReconnect()
                     if (!isBridgeConnected()) {
-                        throw Exception("Failed connect to Bridge")
+                        return null
                     }
                 }
             }

@@ -7,6 +7,7 @@ import android.view.ViewGroup
 import com.wmods.wppenhacer.R
 import com.wmods.wppenhacer.ui.fragments.base.BaseFragment
 import com.wmods.wppenhacer.ui.fragments.base.BasePreferenceFragment
+import com.wmods.wppenhacer.xposed.runtime.RuntimeDiagnosticsExporter
 
 class GeneralFragment : BaseFragment() {
     override fun onCreateView(
@@ -49,6 +50,11 @@ class GeneralFragment : BaseFragment() {
         override fun onCreatePreferences(savedInstanceState: Bundle?, rootKey: String?) {
             super.onCreatePreferences(savedInstanceState, rootKey)
             setPreferencesFromResource(R.xml.preference_general_home, rootKey)
+            findPreference<androidx.preference.Preference>("runtime_export_diagnostics")
+                ?.setOnPreferenceClickListener {
+                    runCatching { RuntimeDiagnosticsExporter.share(requireContext()) }
+                    true
+                }
             setDisplayHomeAsUpEnabled(true)
         }
     }

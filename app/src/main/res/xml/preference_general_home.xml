@@ -3,6 +3,34 @@
     xmlns:app="http://schemas.android.com/apk/res-auto">
     <PreferenceCategory
         app:iconSpaceReserved="false"
+        app:title="@string/runtime_recovery_title">
+
+        <rikka.material.preference.MaterialSwitchPreference
+            app:defaultValue="false"
+            app:key="runtime_disable_all_hooks"
+            app:summary="@string/runtime_disable_all_hooks_summary"
+            app:title="@string/runtime_disable_all_hooks_title" />
+
+        <rikka.material.preference.MaterialSwitchPreference
+            app:defaultValue="false"
+            app:key="runtime_safe_mode"
+            app:summary="@string/runtime_safe_mode_summary"
+            app:title="@string/runtime_safe_mode_title" />
+
+        <rikka.material.preference.MaterialSwitchPreference
+            app:defaultValue="false"
+            app:key="runtime_disable_visual_modifications"
+            app:summary="@string/runtime_disable_visual_summary"
+            app:title="@string/runtime_disable_visual_title" />
+
+        <Preference
+            app:key="runtime_export_diagnostics"
+            app:summary="@string/runtime_export_diagnostics_summary"
+            app:title="@string/runtime_export_diagnostics_title" />
+    </PreferenceCategory>
+
+    <PreferenceCategory
+        app:iconSpaceReserved="false"
         app:title="@string/general">
 
         <ListPreference
@@ -66,22 +94,6 @@
             app:key="bypass_version_check"
             app:summary="@string/disable_version_check_sum"
             app:title="@string/disable_version_check" />
-
-        <rikka.material.preference.MaterialSwitchPreference
-            android:summary="@string/bootloader_spoofer_sum"
-            android:title="@string/bootloader_spoofer"
-            app:key="bootloader_spoofer" />
-
-        <rikka.material.preference.MaterialSwitchPreference
-            android:summary="@string/bootloader_spoofer_sum"
-            android:title="Enable Custom KeyBox"
-            app:key="bootloader_spoofer_custom" />
-
-        <com.wmods.wppenhacer.preference.FileReaderPreference
-            android:key="bootloader_spoofer_xml"
-            android:dependency="bootloader_spoofer_custom"
-            android:title="Use Custom keybox.xml file"
-            android:summary="No file selected" />
 
         <rikka.material.preference.MaterialSwitchPreference
             app:key="ampm"

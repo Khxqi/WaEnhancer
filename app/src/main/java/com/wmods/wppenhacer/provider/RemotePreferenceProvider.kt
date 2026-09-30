@@ -8,6 +8,7 @@ class RemotePreferenceProvider : RemotePreferenceProvider(
     arrayOf(BuildConfig.APPLICATION_ID + "_preferences")
 ) {
     override fun checkAccess(prefFileName: String, prefKey: String, write: Boolean): Boolean {
-        return !write
+        val providerContext = context ?: return false
+        return !write && IpcCallerValidator.isAllowed(providerContext)
     }
 }

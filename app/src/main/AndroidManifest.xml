@@ -4,7 +4,6 @@
 
     <queries>
         <package android:name="com.whatsapp" />
-        <package android:name="com.whatsapp.w4b" />
     </queries>
 
     <uses-permission android:name="android.permission.INTERNET" />
@@ -110,8 +109,8 @@
 
         <service
             android:name=".xposed.bridge.service.BridgeService"
-            android:exported="true"
-            tools:ignore="ExportedService" />
+            android:enabled="false"
+            android:exported="false" />
 
         <provider
             android:name="androidx.core.content.FileProvider"
@@ -126,13 +125,18 @@
         <provider
             android:name=".xposed.bridge.providers.HookProvider"
             android:authorities="${applicationId}.hookprovider"
-            android:enabled="true"
-            android:exported="true"
-            tools:ignore="ExportedContentProvider" />
+            android:enabled="false"
+            android:exported="false" />
 
         <provider
             android:name=".provider.RemotePreferenceProvider"
             android:authorities="${applicationId}.preferences"
+            android:exported="true"
+            tools:ignore="ExportedContentProvider" />
+
+        <provider
+            android:name=".provider.RuntimeDiagnosticsProvider"
+            android:authorities="${applicationId}.runtime-diagnostics"
             android:exported="true"
             tools:ignore="ExportedContentProvider" />
 

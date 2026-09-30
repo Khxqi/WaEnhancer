@@ -19,6 +19,8 @@ import androidx.preference.PreferenceManager
 import com.google.android.material.dialog.MaterialAlertDialogBuilder
 import com.wmods.wppenhacer.activities.CrashReportActivity
 import com.wmods.wppenhacer.xposed.utils.Utils
+import com.wmods.wppenhacer.xposed.core.FeatureLoader
+import com.wmods.wppenhacer.xposed.runtime.RuntimeControl
 import de.robv.android.xposed.XposedHelpers
 import rikka.material.app.LocaleDelegate.Companion.defaultLocale
 import java.io.File
@@ -35,6 +37,11 @@ class App : Application() {
 
         try {
             sharedPreferences = PreferenceManager.getDefaultSharedPreferences(this)
+            RuntimeControl.ensureToken(this)
+            sharedPreferences.registerOnSharedPreferenceChangeListener { _, _ ->
+                RuntimeControl.makePreferencesReadable(this)
+            }
+            RuntimeControl.makePreferencesReadable(this)
             val mode = sharedPreferences.getString("thememode", "0")!!.toInt()
             setThemeMode(mode)
             changeLanguage(this)
@@ -77,9 +84,11 @@ class App : Application() {
     }
 
     fun restartApp(packageWpp: String) {
-        val intent = Intent(BuildConfig.APPLICATION_ID + ".WHATSAPP.RESTART").apply {
+        if (packageWpp != FeatureLoader.PACKAGE_WPP) return
+        val intent = RuntimeControl.addToken(Intent(RuntimeControl.ACTION_RESTART).apply {
             putExtra("PKG", packageWpp)
-        }
+            setPackage(packageWpp)
+        }, this)
         sendBroadcast(intent)
     }
 

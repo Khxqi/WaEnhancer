@@ -48,9 +48,6 @@ object FeatureCatalog {
         add(catalog, context, "bypass_version_check", R.string.disable_version_check,
             R.string.disable_version_check_sum, SearchableFeature.Category.GENERAL_HOME,
             general, "general_home", "version", "check", "bypass")
-        add(catalog, context, "bootloader_spoofer", R.string.bootloader_spoofer,
-            R.string.bootloader_spoofer_sum, SearchableFeature.Category.GENERAL_HOME,
-            general, "general_home", "bootloader", "spoofer", "ban")
         add(catalog, context, "ampm", R.string.ampm, null,
             SearchableFeature.Category.GENERAL_HOME, general, "general_home", "time", "12", "hour", "format")
         add(catalog, context, "segundos", R.string.segundosnahora, R.string.segundosnahora_sum,

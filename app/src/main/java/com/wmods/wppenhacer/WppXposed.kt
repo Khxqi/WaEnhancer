@@ -8,10 +8,8 @@ import android.view.Window
 import android.view.WindowManager
 import androidx.preference.PreferenceManager
 import com.wmods.wppenhacer.activities.MainActivity
-import com.wmods.wppenhacer.xposed.AntiUpdater
-import com.wmods.wppenhacer.xposed.bridge.ScopeHook
 import com.wmods.wppenhacer.xposed.core.FeatureLoader
-import com.wmods.wppenhacer.xposed.downgrade.Patch
+import com.wmods.wppenhacer.xposed.runtime.RuntimeConfigReader
 import de.robv.android.xposed.IXposedHookInitPackageResources
 import de.robv.android.xposed.IXposedHookLoadPackage
 import de.robv.android.xposed.IXposedHookZygoteInit
@@ -70,17 +68,10 @@ class WppXposed : IXposedHookLoadPackage, IXposedHookInitPackageResources, IXpos
             return
         }
 
-        AntiUpdater.hookSession(lpparam)
-
-        Patch.handleLoadPackage(lpparam)
-
-        ScopeHook.hook(lpparam)
-
-        if ((packageName == FeatureLoader.PACKAGE_WPP && App.isOriginalPackage) || packageName == FeatureLoader.PACKAGE_BUSINESS) {
+        if (packageName == FeatureLoader.PACKAGE_WPP) {
             if (lpparam.isFirstApplication) { // I believe this may fix the problem when using multiple accounts, not yet tested
                 XposedBridge.log("[•] This package: ${lpparam.packageName}")
-                FeatureLoader.start(classLoader, lpparam.appInfo.sourceDir)
-                disableSecureFlag()
+                FeatureLoader.start(classLoader, lpparam.appInfo.sourceDir, lpparam.processName)
             }
         }
     }
@@ -89,7 +80,10 @@ class WppXposed : IXposedHookLoadPackage, IXposedHookInitPackageResources, IXpos
     override fun handleInitPackageResources(resparam: InitPackageResourcesParam) {
         val packageName = resparam.packageName
 
-        if (packageName != FeatureLoader.PACKAGE_WPP && packageName != FeatureLoader.PACKAGE_BUSINESS) {
+        if (packageName != FeatureLoader.PACKAGE_WPP) {
+            return
+        }
+        if (RuntimeConfigReader.readEarly().disableAllHooks) {
             return
         }
 

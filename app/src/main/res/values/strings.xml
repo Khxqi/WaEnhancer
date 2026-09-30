@@ -557,4 +557,13 @@
     <string name="diag_hma_blocked">Hide My App List is hiding WaEnhancer from:</string>
     <string name="diag_hma_disable">Disable the block for WhatsApp/Business in Hide My App List so WaEnhancer can work correctly.</string>
     <string name="diag_copied">Line copied to clipboard</string>
+    <string name="runtime_recovery_title">Runtime recovery</string>
+    <string name="runtime_disable_all_hooks_title">Disable all hooks</string>
+    <string name="runtime_disable_all_hooks_summary">Global kill switch. Restart WhatsApp after changing this setting.</string>
+    <string name="runtime_safe_mode_title">Startup safe mode</string>
+    <string name="runtime_safe_mode_summary">Starts WhatsApp without optional WaEnhancer features so a broken hook can be isolated.</string>
+    <string name="runtime_disable_visual_title">Disable visual modifications</string>
+    <string name="runtime_disable_visual_summary">Skips legacy visual feature installers while keeping non-visual features available.</string>
+    <string name="runtime_export_diagnostics_title">Export runtime diagnostics</string>
+    <string name="runtime_export_diagnostics_summary">Shares the latest sanitized runtime state received from WhatsApp.</string>
 </resources>
