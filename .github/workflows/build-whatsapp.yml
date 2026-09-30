@@ -1,3 +1,4 @@
+# Activate workflow on fork
 name: Build WhatsApp
 
 on:
