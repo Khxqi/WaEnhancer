@@ -7,6 +7,7 @@ import androidx.preference.PreferenceManager
 import com.wmods.wppenhacer.BuildConfig
 import java.security.MessageDigest
 import java.util.UUID
+import java.io.File
 
 object RuntimeControl {
     const val TOKEN_KEY = "runtime_control_token"
@@ -43,7 +44,10 @@ object RuntimeControl {
 
     fun makePreferencesReadable(context: Context) {
         runCatching {
-            val file = context.getSharedPreferencesPath(BuildConfig.APPLICATION_ID + "_preferences.xml")
+            val file = File(
+                context.applicationInfo.dataDir,
+                "shared_prefs/${BuildConfig.APPLICATION_ID}_preferences.xml"
+            )
             file.setReadable(true, false)
             file.parentFile?.setExecutable(true, false)
         }

@@ -221,7 +221,7 @@ object RuntimeBootstrap {
             .any { version.startsWith(it.replace(".xx", "")) }
     }
 
-    private fun installExpirationFallback(classLoader: ClassLoader) {
+    fun installExpirationFallback(classLoader: ClassLoader) {
         val expirationClass = Unobfuscator.loadExpirationClass(classLoader)
         ReflectionUtils.findAllMethodsUsingFilter(expirationClass) { it.returnType == Date::class.java }
             .forEach { method ->

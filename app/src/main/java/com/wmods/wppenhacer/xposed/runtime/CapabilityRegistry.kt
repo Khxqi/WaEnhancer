@@ -32,8 +32,8 @@ class CapabilityRegistry {
 
     fun <T : Any> resolve(
         id: CapabilityId,
-        resolver: () -> T,
-        validator: (T) -> Boolean = { true }
+        validator: (T) -> Boolean = { true },
+        resolver: () -> T
     ): T? {
         @Suppress("UNCHECKED_CAST")
         values[id]?.let { return it as T }

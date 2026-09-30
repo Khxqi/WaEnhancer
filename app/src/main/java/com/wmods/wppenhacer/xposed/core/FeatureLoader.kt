@@ -24,5 +24,10 @@ class FeatureLoader {
         fun start(loader: ClassLoader, sourceDir: String, processName: String) {
             RuntimeBootstrap.install(loader, sourceDir, processName)
         }
+
+        @JvmStatic
+        fun disableExpirationVersion(classLoader: ClassLoader) {
+            RuntimeBootstrap.installExpirationFallback(classLoader)
+        }
     }
 }
