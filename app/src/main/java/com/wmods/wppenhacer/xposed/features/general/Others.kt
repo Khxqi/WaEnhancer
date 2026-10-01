@@ -262,8 +262,6 @@ class Others(loader: ClassLoader, preferences:SharedPreferences) : Feature(loade
 
         doubleTapReaction()
 
-        alwaysOnline()
-
         callInfo()
 
         if (disableProfileStatus) {
@@ -466,12 +464,6 @@ class Others(loader: ClassLoader, preferences:SharedPreferences) : Feature(loade
             sb.append(String.format(Utils.application.getString(R.string.wpp_version_s), wppVersion)).append("\n")
         
         Utils.showNotification(Utils.application.getString(R.string.call_information), sb.toString())
-    }
-
-    private fun alwaysOnline() {
-        if (!prefs.getBoolean("always_online", false)) return
-        val stateChange = Unobfuscator.loadStateChangeMethod(classLoader)
-        XposedBridge.hookMethod(stateChange, XC_MethodReplacement.DO_NOTHING)
     }
 
     private fun doubleTapReaction() {

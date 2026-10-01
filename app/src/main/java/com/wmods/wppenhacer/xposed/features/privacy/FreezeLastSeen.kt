@@ -7,6 +7,9 @@ import com.wmods.wppenhacer.xposed.core.devkit.Unobfuscator.loadFreezeSeenMethod
 import de.robv.android.xposed.XC_MethodReplacement
 import android.content.SharedPreferences 
 import de.robv.android.xposed.XposedBridge
+import com.wmods.wppenhacer.xposed.runtime.HookInstallScope
+import com.wmods.wppenhacer.xposed.runtime.registerXposed
+import java.lang.reflect.Method
 
 class FreezeLastSeen(loader: ClassLoader, preferences:SharedPreferences) :
     Feature(loader, preferences) {
@@ -19,8 +22,15 @@ class FreezeLastSeen(loader: ClassLoader, preferences:SharedPreferences) :
         if (freezeLastSeen || freezeLastSeenOption || ghostmode) {
             val method = loadFreezeSeenMethod(classLoader)
             logDebug(getMethodDescriptor(method))
-            XposedBridge.hookMethod(method, XC_MethodReplacement.DO_NOTHING)
+            install(HookInstallScope(), method)
         }
+    }
+
+    fun install(scope: HookInstallScope, target: Method) {
+        scope.registerXposed(
+            "last-seen-update",
+            XposedBridge.hookMethod(target, XC_MethodReplacement.DO_NOTHING)
+        )
     }
 
     override fun getPluginName(): String {

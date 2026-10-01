@@ -34,25 +34,16 @@ object LegacyRuntimeAdapter {
         "com.wmods.wppenhacer.xposed.features.listeners.ConversationItemListener",
         "com.wmods.wppenhacer.xposed.features.providers.MenuStatusProvider",
         "com.wmods.wppenhacer.xposed.features.general.ShowEditMessage",
-        "com.wmods.wppenhacer.xposed.features.general.AntiRevoke",
         "com.wmods.wppenhacer.xposed.features.customization.CustomToolbar",
         "com.wmods.wppenhacer.xposed.features.customization.CustomView",
-        "com.wmods.wppenhacer.xposed.features.general.SeenTick",
         "com.wmods.wppenhacer.xposed.features.customization.BubbleColors",
-        "com.wmods.wppenhacer.xposed.features.privacy.CallPrivacy",
         "com.wmods.wppenhacer.xposed.features.others.ActivityController",
         "com.wmods.wppenhacer.xposed.features.customization.CustomThemeV2",
         "com.wmods.wppenhacer.xposed.features.customization.FloatingBottomBar",
         "com.wmods.wppenhacer.xposed.features.general.ChatLimit",
         "com.wmods.wppenhacer.xposed.features.customization.SeparateGroup",
         "com.wmods.wppenhacer.xposed.features.customization.ShowOnline",
-        "com.wmods.wppenhacer.xposed.features.privacy.DndMode",
-        "com.wmods.wppenhacer.xposed.features.privacy.FreezeLastSeen",
-        "com.wmods.wppenhacer.xposed.features.privacy.TypingPrivacy",
-        "com.wmods.wppenhacer.xposed.features.privacy.HideChat",
-        "com.wmods.wppenhacer.xposed.features.privacy.HideSeen",
         "com.wmods.wppenhacer.xposed.features.customization.HideSeenView",
-        "com.wmods.wppenhacer.xposed.features.privacy.TagMessage",
         "com.wmods.wppenhacer.xposed.features.customization.HideTabs",
         "com.wmods.wppenhacer.xposed.features.customization.IGStatus",
         "com.wmods.wppenhacer.xposed.features.media.MediaQuality",
@@ -62,7 +53,6 @@ object LegacyRuntimeAdapter {
         "com.wmods.wppenhacer.xposed.features.customization.CustomTime",
         "com.wmods.wppenhacer.xposed.features.general.ShareLimit",
         "com.wmods.wppenhacer.xposed.features.media.StatusDownload",
-        "com.wmods.wppenhacer.xposed.features.privacy.ViewOnce",
         "com.wmods.wppenhacer.xposed.features.general.CallType",
         "com.wmods.wppenhacer.xposed.features.media.MediaPreview",
         "com.wmods.wppenhacer.xposed.features.customization.FilterGroups",
@@ -79,11 +69,9 @@ object LegacyRuntimeAdapter {
         "com.wmods.wppenhacer.xposed.features.others.TextStatusComposer",
         "com.wmods.wppenhacer.xposed.features.others.ToastViewer",
         "com.wmods.wppenhacer.xposed.features.others.MenuHome",
-        "com.wmods.wppenhacer.xposed.features.privacy.CustomPrivacy",
         "com.wmods.wppenhacer.xposed.features.others.AudioTranscript",
         "com.wmods.wppenhacer.xposed.features.others.GoogleTranslate",
         "com.wmods.wppenhacer.xposed.features.customization.ContactVerify",
-        "com.wmods.wppenhacer.xposed.features.privacy.LockedChatsEnhancer",
         "com.wmods.wppenhacer.xposed.features.media.CallRecording",
         "com.wmods.wppenhacer.xposed.features.others.BackupRestore",
         "com.wmods.wppenhacer.xposed.features.others.JumpFirstMessage",
@@ -93,12 +81,16 @@ object LegacyRuntimeAdapter {
         "com.wmods.wppenhacer.xposed.features.providers.ContextMenuActionProvider"
     )
 
-    fun initializeCore(application: Application, loader: ClassLoader, pref: SharedPreferences): Boolean {
+    fun initializeMessageComponents(loader: ClassLoader): Boolean {
         FMessageWpp.initialize(loader)
         FStatusWpp.initialize(loader)
         ProtocolTreeNodeWpp.initialize(loader)
-        AlertDialogWpp.initDialog(loader)
         WaContactWpp.initialize(loader)
+        return true
+    }
+
+    fun initializeCore(application: Application, loader: ClassLoader, pref: SharedPreferences): Boolean {
+        AlertDialogWpp.initDialog(loader)
         WppCore.initialize(loader, pref)
         DesignUtils.setPrefs(pref)
         Utils.init()
@@ -115,10 +107,15 @@ object LegacyRuntimeAdapter {
         registry.register(
             FeatureSpec(
                 id = FeatureId("legacy.general.disable-secure-flag"),
+                diagnosticName = "Disable secure window flag",
                 category = FeatureCategory.GENERAL,
                 requiredCapabilities = emptySet(),
                 enabled = { !config.safeMode && !config.disableAllHooks },
-                installer = { installDisableSecureFlag() }
+                installer = {
+                    installDisableSecureFlag().forEachIndexed { index, handle ->
+                        register("window-secure-flag[$index]", handle)
+                    }
+                }
             )
         )
 
@@ -127,6 +124,7 @@ object LegacyRuntimeAdapter {
             registry.register(
                 FeatureSpec(
                     id = FeatureId(stableId(className, category)),
+                    diagnosticName = className.substringAfterLast('.'),
                     category = category,
                     requiredCapabilities = setOf(RuntimeCapabilities.LEGACY_CORE),
                     enabled = {
@@ -141,7 +139,6 @@ object LegacyRuntimeAdapter {
                         )
                         val feature = constructor.newInstance(loader, preferences) as Feature
                         feature.doHook()
-                        emptyList()
                     },
                     legacyManagedEnablement = true
                 )

@@ -23,6 +23,7 @@ object RuntimeCapabilities {
     val MODULE_RESOURCES = CapabilityId("runtime.module-resources")
     val DEXKIT = CapabilityId("resolver.dexkit")
     val RESOLVER_CACHE = CapabilityId("resolver.cache")
+    val MESSAGE_COMPONENTS = CapabilityId("runtime.message-components")
     val LEGACY_CORE = CapabilityId("legacy.core-components")
 }
 
@@ -57,6 +58,9 @@ class CapabilityRegistry {
     }
 
     fun isReady(id: CapabilityId): Boolean = records[id]?.status == CapabilityStatus.READY
+
+    @Suppress("UNCHECKED_CAST")
+    fun <T : Any> get(id: CapabilityId): T? = values[id] as? T
 
     fun snapshot(): List<CapabilityRecord> = records.values.sortedBy { it.id.value }
 }

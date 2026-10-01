@@ -17,6 +17,10 @@ import com.wmods.wppenhacer.xposed.utils.Utils
 import de.robv.android.xposed.XC_MethodHook
 import android.content.SharedPreferences 
 import de.robv.android.xposed.XposedBridge
+import com.wmods.wppenhacer.xposed.runtime.ForwardTagTarget
+import com.wmods.wppenhacer.xposed.runtime.HookHandle
+import com.wmods.wppenhacer.xposed.runtime.HookInstallScope
+import com.wmods.wppenhacer.xposed.runtime.registerXposed
 
 class TagMessage(loader: ClassLoader, preferences:SharedPreferences) :
     Feature(loader, preferences) {
@@ -28,26 +32,32 @@ class TagMessage(loader: ClassLoader, preferences:SharedPreferences) :
         val forwardClass = loadForwardClassMethod(classLoader)
         logDebug("ForwardClass: " + forwardClass.name)
 
-        XposedBridge.hookMethod(method, object : XC_MethodHook() {
+        if (prefs.getBoolean("hidetag", false)) {
+            installHideForwardTag(HookInstallScope(), ForwardTagTarget(method, forwardClass))
+        }
+
+        if (prefs.getBoolean("broadcast_tag", false)) {
+            installBroadcastIndicator(HookInstallScope())
+        }
+    }
+
+    fun installHideForwardTag(scope: HookInstallScope, target: ForwardTagTarget) {
+        val unhook = XposedBridge.hookMethod(target.method, object : XC_MethodHook() {
 
             override fun beforeHookedMethod(param: MethodHookParam) {
-                if (!prefs.getBoolean("hidetag", false)) return
                 val arg = param.args[0] as Long
                 if (arg == 1L) {
-                    if (ReflectionUtils.isCalledFromClass(forwardClass)) {
+                    if (ReflectionUtils.isCalledFromClass(target.forwardClass)) {
                         param.args[0] = 0
                     }
                 }
             }
         })
-
-        if (prefs.getBoolean("broadcast_tag", false)) {
-            hookBroadcastView()
-        }
+        scope.registerXposed("forwarded-tag", unhook)
     }
 
-    private fun hookBroadcastView() {
-        ConversationItemListener.conversationListeners.add(object : OnConversationItemListener() {
+    fun installBroadcastIndicator(scope: HookInstallScope) {
+        val listener = object : OnConversationItemListener() {
             override fun onItemBind(
                 fMessage: FMessageWpp,
                 view: ViewGroup,
@@ -67,6 +77,12 @@ class TagMessage(loader: ClassLoader, preferences:SharedPreferences) :
                 } else if (!fMessage.isBroadcast && res != null) {
                     dateWrapper.removeView(res)
                 }
+            }
+        }
+        ConversationItemListener.conversationListeners.add(listener)
+        scope.register("broadcast-tag-listener", object : HookHandle {
+            override fun unhook() {
+                ConversationItemListener.conversationListeners.remove(listener)
             }
         })
     }

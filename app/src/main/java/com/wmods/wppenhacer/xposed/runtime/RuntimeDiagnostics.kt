@@ -32,9 +32,10 @@ object RuntimeDiagnostics {
         val config = RuntimeState.config
         val capabilities = RuntimeState.capabilities?.snapshot().orEmpty()
         val features = RuntimeState.features?.snapshot().orEmpty()
+        val capabilityStates = capabilities.associateBy { it.id }
 
         return JSONObject().apply {
-            put("schemaVersion", 1)
+            put("schemaVersion", 2)
             put("moduleVersion", session?.moduleVersion ?: BuildConfig.VERSION_NAME)
             put("whatsAppVersionName", session?.whatsAppVersionName ?: JSONObject.NULL)
             put("whatsAppVersionCode", session?.whatsAppVersionCode ?: JSONObject.NULL)
@@ -69,11 +70,28 @@ object RuntimeDiagnostics {
                 features.forEach { record ->
                     put(JSONObject().apply {
                         put("id", record.id.value)
+                        put("name", record.diagnosticName)
                         put("category", record.category.name)
                         put("enabled", record.enabled)
                         put("status", record.status.name)
                         put("failure", record.failureReason ?: JSONObject.NULL)
-                        put("hookHandles", record.installedHookCount)
+                        put("requiredCapabilities", JSONArray().apply {
+                            record.requiredCapabilities.sortedBy { it.value }.forEach { id ->
+                                val capability = capabilityStates[id]
+                                put(JSONObject().apply {
+                                    put("id", id.value)
+                                    put("status", capability?.status?.name ?: "UNRESOLVED")
+                                })
+                            }
+                        })
+                        put("installed", record.status == FeatureStatus.READY)
+                        put("runtimeVerified", record.runtimeVerified)
+                        put("attemptedHookCount", record.attemptedHookCount ?: JSONObject.NULL)
+                        put("installedHookCount", record.installedHookCount ?: JSONObject.NULL)
+                        put("rollbackSupport", record.rollbackSupport.name)
+                        put("rollbackAttempted", record.rollbackAttempted)
+                        put("rollbackSucceeded", record.rollbackSucceeded ?: JSONObject.NULL)
+                        put("partialInstallation", record.partialInstallation)
                         put("legacyManagedEnablement", record.legacyManagedEnablement)
                     })
                 }
@@ -85,6 +103,14 @@ object RuntimeDiagnostics {
                 features.filter {
                     it.status == FeatureStatus.READY && it.legacyManagedEnablement
                 }.forEach { put(it.id.value) }
+            })
+            put("installedManagedFeatures", JSONArray().apply {
+                features.filter {
+                    it.status == FeatureStatus.READY && !it.legacyManagedEnablement
+                }.forEach { put(it.id.value) }
+            })
+            put("runtimeVerifiedFeatures", JSONArray().apply {
+                features.filter { it.runtimeVerified }.forEach { put(it.id.value) }
             })
             put("failedFeatures", JSONArray().apply {
                 features.filter { it.status == FeatureStatus.FAILED }.forEach { put(it.id.value) }

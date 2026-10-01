@@ -10,6 +10,9 @@ object RuntimeState {
     var config: RuntimeConfigSnapshot? = null
 
     @Volatile
+    var privacyConfig: PrivacyConfigSnapshot? = null
+
+    @Volatile
     var capabilities: CapabilityRegistry? = null
 
     @Volatile

@@ -7,6 +7,9 @@ import com.wmods.wppenhacer.xposed.core.devkit.Unobfuscator.loadViewOnceMethod
 import de.robv.android.xposed.XC_MethodHook
 import android.content.SharedPreferences 
 import de.robv.android.xposed.XposedBridge
+import com.wmods.wppenhacer.xposed.runtime.HookInstallScope
+import com.wmods.wppenhacer.xposed.runtime.registerXposed
+import java.lang.reflect.Method
 
 
 class ViewOnce(loader: ClassLoader, preferences:SharedPreferences) :
@@ -15,11 +18,14 @@ class ViewOnce(loader: ClassLoader, preferences:SharedPreferences) :
     override fun doHook() {
         if (!prefs.getBoolean("viewonce", false)) return
 
-        val methods = loadViewOnceMethod(classLoader)
+        val methods = loadViewOnceMethod(classLoader).toList()
+        install(HookInstallScope(), methods)
+    }
 
-        methods.forEach { method ->
+    fun install(scope: HookInstallScope, methods: List<Method>) {
+        methods.forEachIndexed { index, method ->
             logDebug(getMethodDescriptor(method))
-            XposedBridge.hookMethod(method, object : XC_MethodHook() {
+            val unhook = XposedBridge.hookMethod(method, object : XC_MethodHook() {
                 override fun beforeHookedMethod(param: MethodHookParam) {
                     val returnValue = param.args[0] as Int
                     val fMessage = FMessageWpp(param.thisObject)
@@ -28,8 +34,8 @@ class ViewOnce(loader: ClassLoader, preferences:SharedPreferences) :
                     }
                 }
             })
+            scope.registerXposed("view-once-state[$index]", unhook)
         }
-
     }
 
     override fun getPluginName(): String {

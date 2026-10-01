@@ -7,6 +7,7 @@ import android.view.ContextThemeWrapper
 import com.wmods.wppenhacer.R
 import com.wmods.wppenhacer.xposed.core.Feature
 import com.wmods.wppenhacer.xposed.core.FeatureLoader
+import com.wmods.wppenhacer.xposed.core.WppCore
 import com.wmods.wppenhacer.xposed.core.devkit.Unobfuscator
 import com.wmods.wppenhacer.xposed.core.devkit.UnobfuscatorCache
 import com.wmods.wppenhacer.xposed.core.components.SharedPreferencesWrapper
@@ -96,7 +97,26 @@ object RuntimeBootstrap {
 
             val registry = FeatureRegistry(capabilities)
             RuntimeState.features = registry
+            var privacyConfig = PrivacyConfigReader.read(
+                configAccess.legacyPreferences,
+                config
+            )
+            RuntimeState.privacyConfig = privacyConfig
             if (config.disableAllHooks || config.transportStatus == ConfigTransportStatus.FAILED_CLOSED) {
+                PrivacyFeatureRegistry.register(
+                    registry,
+                    capabilities,
+                    loader,
+                    configAccess.legacyPreferences,
+                    privacyConfig
+                )
+                LegacyRuntimeAdapter.registerFeatures(
+                    registry,
+                    loader,
+                    configAccess.legacyPreferences,
+                    config
+                )
+                registry.installAll()
                 RuntimeState.stage(RuntimeStage.FEATURE_INSTALLATION, RuntimeStageStatus.SKIPPED, "Global kill switch")
                 RuntimeState.stage(RuntimeStage.STOPPED, RuntimeStageStatus.READY, "All hooks disabled")
                 publish(application)
@@ -104,6 +124,13 @@ object RuntimeBootstrap {
             }
 
             if (config.safeMode) {
+                PrivacyFeatureRegistry.register(
+                    registry,
+                    capabilities,
+                    loader,
+                    configAccess.legacyPreferences,
+                    privacyConfig
+                )
                 LegacyRuntimeAdapter.registerFeatures(
                     registry,
                     loader,
@@ -158,9 +185,13 @@ object RuntimeBootstrap {
                 }
             }
 
-            if (dexKitReady == true && moduleContext != null &&
-                capabilities.isReady(RuntimeCapabilities.RESOLVER_CACHE)
-            ) {
+            if (dexKitReady == true && capabilities.isReady(RuntimeCapabilities.RESOLVER_CACHE)) {
+                capabilities.resolve(RuntimeCapabilities.MESSAGE_COMPONENTS) {
+                    LegacyRuntimeAdapter.initializeMessageComponents(loader)
+                }
+            }
+
+            if (moduleContext != null && capabilities.isReady(RuntimeCapabilities.MESSAGE_COMPONENTS)) {
                 capabilities.resolve(RuntimeCapabilities.LEGACY_CORE) {
                     LegacyRuntimeAdapter.initializeCore(
                         application,
@@ -169,6 +200,20 @@ object RuntimeBootstrap {
                     )
                 }
             }
+
+            privacyConfig = PrivacyConfigReader.read(
+                configAccess.legacyPreferences,
+                config,
+                privateBoolean = { key ->
+                    if (capabilities.isReady(RuntimeCapabilities.LEGACY_CORE)) {
+                        WppCore.getPrivBoolean(key, false)
+                    } else {
+                        false
+                    }
+                }
+            )
+            RuntimeState.privacyConfig = privacyConfig
+            PrivacyCapabilityResolver.resolve(capabilities, loader, privacyConfig)
             RuntimeState.stage(
                 RuntimeStage.CAPABILITY_RESOLUTION,
                 if (capabilities.isReady(RuntimeCapabilities.LEGACY_CORE)) {
@@ -179,6 +224,13 @@ object RuntimeBootstrap {
             )
 
             RuntimeState.stage(RuntimeStage.FEATURE_INSTALLATION, RuntimeStageStatus.RUNNING)
+            PrivacyFeatureRegistry.register(
+                registry,
+                capabilities,
+                loader,
+                configAccess.legacyPreferences,
+                privacyConfig
+            )
             LegacyRuntimeAdapter.registerFeatures(
                 registry,
                 loader,
