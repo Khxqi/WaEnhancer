@@ -126,6 +126,10 @@ object PrivacyFeatureRegistry {
             registry,
             id = "privacy.revoke.anti-revoke",
             name = "Anti-revoke messages and status",
+            required = setOf(
+                RuntimeCapabilities.LEGACY_CORE,
+                PrivacyCapabilities.ANTI_REVOKE_PREFLIGHT
+            ),
             enabled = { config.runtimeAllowed && config.antiRevokeEnabled }
         ) { AntiRevoke(loader, preferences).doHook() }
 
@@ -133,6 +137,10 @@ object PrivacyFeatureRegistry {
             registry,
             id = "privacy.receipts.manual-send",
             name = "Manual and reply-triggered receipts",
+            required = setOf(
+                RuntimeCapabilities.LEGACY_CORE,
+                PrivacyCapabilities.MANUAL_RECEIPTS_PREFLIGHT
+            ),
             enabled = { config.runtimeAllowed && config.seenTickEnabled }
         ) { SeenTick(loader, preferences).doHook() }
 
@@ -140,6 +148,10 @@ object PrivacyFeatureRegistry {
             registry,
             id = "privacy.calls.blocking",
             name = "Call privacy",
+            required = setOf(
+                RuntimeCapabilities.LEGACY_CORE,
+                PrivacyCapabilities.CALL_PRIVACY_PREFLIGHT
+            ),
             enabled = { config.runtimeAllowed && config.callPrivacyEnabled }
         ) { CallPrivacy(loader, preferences).doHook() }
 
@@ -147,6 +159,10 @@ object PrivacyFeatureRegistry {
             registry,
             id = "privacy.context.per-contact-editor",
             name = "Per-contact privacy editor",
+            required = setOf(
+                RuntimeCapabilities.LEGACY_CORE,
+                PrivacyCapabilities.PER_CONTACT_PREFLIGHT
+            ),
             enabled = { config.runtimeAllowed && config.perContactPrivacyEnabled }
         ) { CustomPrivacy(loader, preferences).doHook() }
 
@@ -154,6 +170,10 @@ object PrivacyFeatureRegistry {
             registry,
             id = "privacy.receipts.hide-seen",
             name = "Hide seen, delivered, status, and played receipts",
+            required = setOf(
+                RuntimeCapabilities.LEGACY_CORE,
+                PrivacyCapabilities.HIDE_SEEN_PREFLIGHT
+            ),
             enabled = { config.runtimeAllowed && config.hideSeenEnabled }
         ) { HideSeen(loader, preferences).doHook() }
 
@@ -163,7 +183,8 @@ object PrivacyFeatureRegistry {
             name = "Locked chats enhancer",
             required = setOf(
                 RuntimeCapabilities.MESSAGE_COMPONENTS,
-                RuntimeCapabilities.RESOLVER_CACHE
+                RuntimeCapabilities.RESOLVER_CACHE,
+                PrivacyCapabilities.LOCKED_CHATS_PREFLIGHT
             ),
             enabled = { config.runtimeAllowed && config.lockedChatsEnhancer }
         ) { LockedChatsEnhancer(loader, preferences).doHook() }
