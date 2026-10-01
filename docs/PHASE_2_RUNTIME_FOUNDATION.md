@@ -2,7 +2,8 @@
 
 This document describes the runtime that is implemented on the
 `w-injector/phase-2-runtime-foundation` branch. It does not describe the future iOS/Liquid Glass
-UI and it does not claim real-device compatibility.
+UI. Its real-device gate was subsequently completed successfully on a OnePlus 15 running Android
+16/OxygenOS 16 with KernelSU Next, LSPosed, and official `com.whatsapp`.
 
 ## Supported host and scope
 
