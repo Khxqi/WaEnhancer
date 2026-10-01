@@ -75,7 +75,7 @@
 
         <activity
             android:name=".activities.CrashReportActivity"
-            android:exported="true"
+            android:exported="false"
             android:theme="@style/AppTheme" />
 
         <activity
@@ -95,16 +95,10 @@
 
         <activity
             android:name=".activities.ForceStartActivity"
+            android:enabled="false"
             android:excludeFromRecents="true"
-            android:exported="true"
-            android:theme="@android:style/Theme.NoDisplay">
-
-            <intent-filter>
-                <action android:name="android.intent.action.MAIN" />
-                <category android:name="android.intent.category.DEFAULT" />
-            </intent-filter>
-
-        </activity>
+            android:exported="false"
+            android:theme="@android:style/Theme.NoDisplay" />
 
 
         <service
@@ -159,12 +153,7 @@
 
         <receiver
             android:name=".receivers.WAFReceiver"
-            android:exported="true"
-            tools:ignore="ExportedReceiver">
-            <intent-filter>
-                <action android:name="com.facebook.GET_PHONE_ID" />
-                <action android:name="android.support.customtabs.action.CustomTabsService"/>
-            </intent-filter>
-        </receiver>
+            android:enabled="false"
+            android:exported="false" />
     </application>
 </manifest>
