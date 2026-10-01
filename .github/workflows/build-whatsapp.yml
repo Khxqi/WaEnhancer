@@ -5,6 +5,7 @@ on:
   push:
     branches:
       - w-injector/phase-2-runtime-foundation
+      - w-injector/phase-3-privacy-runtime
 
 jobs:
   build:
@@ -72,7 +73,7 @@ jobs:
           echo "filename=$name" >> "$GITHUB_OUTPUT"
           echo "size_bytes=$size" >> "$GITHUB_OUTPUT"
           {
-            echo '### WaEnhancer Phase 2 APK'
+            echo '### WaEnhancer WhatsApp debug APK'
             echo
             echo "- Commit: \`$GITHUB_SHA\`"
             echo "- Path: \`$apk\`"
