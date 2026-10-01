@@ -100,7 +100,7 @@ class FeatureRegistryTest {
     ) = FeatureSpec(
         id = FeatureId(id),
         diagnosticName = id,
-        category = FeatureCategory.SUPPORT,
+        category = FeatureCategory.PRIVACY,
         requiredCapabilities = capabilities,
         enabled = { true },
         installer = installer,
