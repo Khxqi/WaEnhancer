@@ -31,3 +31,12 @@ Open items before release:
 - Resolve DexKit provenance and license from the exact hashes above.
 - Expand the inventory to all resolved transitive runtime artifacts after repository access is available.
 - Generate a distribution-ready notice bundle with required complete license texts and copyright statements.
+
+## Phase 4 reference-only research
+
+`Kyant0/AndroidLiquidGlass` (artifact `io.github.kyant0:backdrop:2.0.1`) was inspected at commit
+`65ab177e90e5c1d8c62e70cf7755841982da65f6`. The pinned tree contains the Apache License 2.0
+and a `Copyright 2025 Kyant` notice. It is not added as a dependency and no source or shader from
+that repository is included in WaEnhancer. Phase 4 uses only general architectural concepts, with
+an independently authored native Android View/AGSL implementation. See
+`docs/PHASE_4_LIQUID_GLASS_FEASIBILITY.md` for exact provenance.

@@ -31,6 +31,22 @@
 
     <PreferenceCategory
         app:iconSpaceReserved="false"
+        app:title="@string/glass_development_title">
+
+        <Preference
+            app:key="runtime_glass_lab"
+            app:summary="@string/runtime_glass_lab_summary"
+            app:title="@string/runtime_glass_lab_title" />
+
+        <rikka.material.preference.MaterialSwitchPreference
+            app:defaultValue="false"
+            app:key="runtime_enable_liquid_glass_prototype"
+            app:summary="@string/runtime_glass_prototype_summary"
+            app:title="@string/runtime_glass_prototype_title" />
+    </PreferenceCategory>
+
+    <PreferenceCategory
+        app:iconSpaceReserved="false"
         app:title="@string/general">
 
         <ListPreference

@@ -7,6 +7,7 @@ import com.wmods.wppenhacer.BuildConfig
 import org.json.JSONArray
 import org.json.JSONObject
 import java.io.File
+import com.wmods.wppenhacer.ui.glass.GlassRuntimeState
 
 object DiagnosticSanitizer {
     private val jidPattern = Regex("(?i)[^\\s,;]+@(s\\.whatsapp\\.net|g\\.us|lid|broadcast)")
@@ -35,7 +36,7 @@ object RuntimeDiagnostics {
         val capabilityStates = capabilities.associateBy { it.id }
 
         return JSONObject().apply {
-            put("schemaVersion", 2)
+            put("schemaVersion", 3)
             put("moduleVersion", session?.moduleVersion ?: BuildConfig.VERSION_NAME)
             put("whatsAppVersionName", session?.whatsAppVersionName ?: JSONObject.NULL)
             put("whatsAppVersionCode", session?.whatsAppVersionCode ?: JSONObject.NULL)
@@ -48,6 +49,20 @@ object RuntimeDiagnostics {
             put("disableVisualModifications", config?.disableVisualModifications ?: true)
             put("configurationTransport", config?.transportStatus?.name ?: "UNAVAILABLE")
             put("configurationFailure", config?.failureSummary?.let(DiagnosticSanitizer::sanitize) ?: JSONObject.NULL)
+            val glass = GlassRuntimeState.snapshot()
+            put("glass", JSONObject().apply {
+                put("prototypeEnabled", config?.enableLiquidGlassPrototype ?: false)
+                put("capabilities", JSONObject().apply {
+                    put("runtimeShader", glass.capabilities?.runtimeShaderAvailable ?: false)
+                    put("renderEffect", glass.capabilities?.renderEffectAvailable ?: false)
+                    put("crossWindowBlur", glass.capabilities?.crossWindowBlurAvailable ?: false)
+                    put("highEndGraphics", glass.capabilities?.highEndGraphics ?: false)
+                })
+                put("backend", glass.backend?.name ?: JSONObject.NULL)
+                put("attachedSurfaces", glass.attachedSurfaces)
+                put("hardwareAccelerated", glass.hardwareAccelerated ?: JSONObject.NULL)
+                put("failure", glass.failure?.let(DiagnosticSanitizer::sanitize) ?: JSONObject.NULL)
+            })
             put("stages", JSONArray().apply {
                 RuntimeState.stageSnapshot().forEach { record ->
                     put(JSONObject().apply {

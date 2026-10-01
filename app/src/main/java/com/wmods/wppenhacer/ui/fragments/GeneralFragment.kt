@@ -1,10 +1,12 @@
 package com.wmods.wppenhacer.ui.fragments
 
+import android.content.Intent
 import android.os.Bundle
 import android.view.LayoutInflater
 import android.view.View
 import android.view.ViewGroup
 import com.wmods.wppenhacer.R
+import com.wmods.wppenhacer.activities.GlassLabActivity
 import com.wmods.wppenhacer.ui.fragments.base.BaseFragment
 import com.wmods.wppenhacer.ui.fragments.base.BasePreferenceFragment
 import com.wmods.wppenhacer.xposed.runtime.RuntimeDiagnosticsExporter
@@ -53,6 +55,11 @@ class GeneralFragment : BaseFragment() {
             findPreference<androidx.preference.Preference>("runtime_export_diagnostics")
                 ?.setOnPreferenceClickListener {
                     runCatching { RuntimeDiagnosticsExporter.share(requireContext()) }
+                    true
+                }
+            findPreference<androidx.preference.Preference>("runtime_glass_lab")
+                ?.setOnPreferenceClickListener {
+                    startActivity(Intent(requireContext(), GlassLabActivity::class.java))
                     true
                 }
             setDisplayHomeAsUpEnabled(true)

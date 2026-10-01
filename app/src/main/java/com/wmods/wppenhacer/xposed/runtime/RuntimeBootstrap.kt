@@ -97,6 +97,8 @@ object RuntimeBootstrap {
 
             val registry = FeatureRegistry(capabilities)
             RuntimeState.features = registry
+            GlassFeatureRegistry.resolve(capabilities, application)
+            GlassFeatureRegistry.register(registry, capabilities, application, config)
             var privacyConfig = PrivacyConfigReader.read(
                 configAccess.legacyPreferences,
                 config

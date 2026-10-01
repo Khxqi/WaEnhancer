@@ -13,6 +13,7 @@ object RuntimeConfigKeys {
     const val DISABLE_VISUAL_MODIFICATIONS = "runtime_disable_visual_modifications"
     const val SAFE_MODE = "runtime_safe_mode"
     const val ENABLE_LOGS = "enablelogs"
+    const val ENABLE_LIQUID_GLASS_PROTOTYPE = "runtime_enable_liquid_glass_prototype"
 }
 
 enum class ConfigTransportStatus {
@@ -27,6 +28,7 @@ data class RuntimeConfigSnapshot(
     val safeMode: Boolean,
     val enableLogs: Boolean,
     val transportStatus: ConfigTransportStatus,
+    val enableLiquidGlassPrototype: Boolean = false,
     val failureSummary: String? = null
 )
 
@@ -88,7 +90,11 @@ object RuntimeConfigReader {
             ),
             safeMode = preferences.getBoolean(RuntimeConfigKeys.SAFE_MODE, false),
             enableLogs = preferences.getBoolean(RuntimeConfigKeys.ENABLE_LOGS, true),
-            transportStatus = status
+            transportStatus = status,
+            enableLiquidGlassPrototype = preferences.getBoolean(
+                RuntimeConfigKeys.ENABLE_LIQUID_GLASS_PROTOTYPE,
+                false
+            )
         )
     }
 
@@ -99,6 +105,7 @@ object RuntimeConfigReader {
             safeMode = true,
             enableLogs = false,
             transportStatus = ConfigTransportStatus.FAILED_CLOSED,
+            enableLiquidGlassPrototype = false,
             failureSummary = throwable.javaClass.simpleName
         )
     }
