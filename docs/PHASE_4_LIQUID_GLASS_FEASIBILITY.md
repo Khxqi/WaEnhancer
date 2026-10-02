@@ -85,7 +85,8 @@ The native engine is under `com.wmods.wppenhacer.ui.glass`:
 - `LocalizedBackdropGlassView`: API 33+ same-window prototype. It records the activity content root
   into one retained `RenderNode`, translated and clipped to the glass bounds plus a fixed sampling
   margin. A RuntimeShader RenderEffect receives that node as its `backdrop` input. The overlay skips
-  itself during recording, preventing recursive mirror capture.
+  recursion defensively, while structural ownership outside the sampled subtree prevents recursive
+  mirror capture.
 - `GlassCapabilities`: detects RuntimeShader (API 33), RenderEffect (API 31), localized same-window
   support, current cross-window blur availability for diagnostics, and low-RAM/high-end context.
 - `GlassBackend`: `RUNTIME_SHADER_SAMPLED` for the lab,
@@ -93,7 +94,9 @@ The native engine is under `com.wmods.wppenhacer.ui.glass`:
   `CROSS_WINDOW_BLUR_REJECTED` as a recorded rejected backend, or
   `LAYERED_GPU_FALLBACK` for the explicit non-glass lab comparison.
 
-GPU objects, paths, paints, matrices, and the lab backdrop shader are retained. No bitmap or shader
+GPU objects, paths, paints, matrices, and the lab backdrop shader are retained. The WhatsApp visual
+probe also retains its blur effect, diagnostic shaders, runtime-shader effects, and full glass
+effect; switching modes changes references only. No bitmap or shader
 is allocated from the per-frame draw callback. The lab allocates one detailed bitmap when its size
 or light/dark mode changes, then reuses a tiled `BitmapShader`. There is no PixelCopy, screenshot,
 CPU Gaussian blur, or continuous bitmap capture path.
@@ -131,9 +134,9 @@ Feature ID: `visual.experimental.liquid-glass-prototype`.
 `GlassPrototypeController` still uses the Phase 2/3 `FeatureRegistry` and public
 `Application.ActivityLifecycleCallbacks`, without resolving any obfuscated WhatsApp class. On
 activity resume it inserts one non-clickable, non-focusable `LocalizedBackdropGlassView` into the
-standard `android.R.id.content` `FrameLayout`. Pause, destroy, rollback, or process exit removes the
-view and its pre-draw listener. No popup, extra window, overlay permission, window blur flag, or OEM
-blur API is used.
+window `DecorView`, as a sibling outside the sampled `android.R.id.content` subtree. Pause, destroy,
+rollback, or process exit removes the view and its pre-draw listener. No popup, extra window,
+overlay permission, window blur flag, or OEM blur API is used.
 
 Immediately before a normal frame is drawn, the view records the existing content root into a
 retained hardware `RenderNode`. The recording canvas is translated so only the pill's local region
@@ -171,7 +174,7 @@ requires configuration transport to succeed and all three recovery gates to perm
 
 ## Diagnostics and performance instrumentation
 
-Runtime diagnostics schema 7 includes `glass` with the experimental flag, RuntimeShader/RenderEffect/
+Runtime diagnostics schema 8 includes `glass` with the experimental flag, RuntimeShader/RenderEffect/
 localized/cross-window/high-end capability flags, active backend, rejected backend list, attached
 surface count, hardware acceleration state, captured frame count, last/worst recording duration,
 approximate RenderNode memory, and a sanitized failure. It does not include WhatsApp content or
@@ -385,3 +388,44 @@ draw counters: total onDraw entries, draws attempted during capture, normal onDr
 successful RenderNode draws. Milestones are traced/published only on their first transition; there
 is no per-frame diagnostic I/O. Runtime verification still requires a successful attachment and a
 completed normal localized RenderNode frame.
+
+## Visual composition probe after Schema 7 device evidence
+
+The OnePlus 15 run of `168DF1FE` proved structural ownership and the complete Java/Kotlin draw call
+path: the pill label was visible, capture advanced to 480 frames, and 516 normal
+`Canvas.drawRenderNode` calls returned without an exception. It did **not** show blur, refraction,
+tint, edge light, or depth. Consequently `runtimeVerified=true` is defined as call-level draw-path
+verification only; it is not evidence that a `RenderEffect` contributed visible pixels and it is
+not visual acceptance.
+
+One bounded, non-touchable diagnostic build now cycles every three seconds through these retained
+GPU paths:
+
+| Mode | Retained node effect | Device question |
+|---|---|---|
+| `RAW_REPLAY_SHIFTED` | none; replay translated by 12 dp | Does the recorded node contain visible WhatsApp pixels? |
+| `BUILTIN_BLUR` | public `RenderEffect.createBlurEffect` | Does ordinary RenderEffect composition work? |
+| `RUNTIME_SOLID` | minimal RuntimeShader returning vivid magenta | Does a RuntimeShader RenderEffect execute? |
+| `RUNTIME_INPUT_TINT` | minimal direct `backdrop.eval(p)` plus strong orange tint | Is the RenderNode input bound and sampled? |
+| `CURRENT_GLASS_EXAGGERATED` | existing independently authored sampled shader with diagnostic-strength parameters | Does the complete current glass pipeline produce visible output? |
+
+The mode name is drawn after the replay and remains readable even when a preceding effect fails.
+`View.postDelayed` advances the probe; detach removes the callback. Runtime tracing and diagnostics
+publication are bounded to the first pass plus the transition that completes it, rather than every
+frame or every later cycle. Schema 8 adds `visualProbeMode`, `visualProbeCycleCount`,
+`drawPathVerified`, `runtimeVerifiedMeaning=\"DRAW_PATH_ONLY\"`, and
+`visualVerificationStatus=\"PENDING_DEVICE_REPORT\"`.
+
+Android documents that a RenderEffect installed on a RenderNode is applied when that node is drawn
+through `Canvas.drawRenderNode`, and that `setRenderEffect` already creates a separate layer when the
+effect requires it. `RenderNode.setUseCompositingLayer(true, ...)` remains unset: the platform calls
+false the default/recommended value, and there is not yet measured evidence that a second forced
+intermediate buffer fixes this scene. `View.setRenderEffect` was also not selected: it would affect
+the real glass View backing node, including its diagnostic label, rather than isolating the captured
+backdrop replay. The five modes provide the evidence needed before either architecture changes.
+
+The diagnostic path retains the same sampling root, 36 dp padding, window-coordinate translation,
+capsule clipping, and structural overlay exclusion. It does not use PixelCopy, screenshots, Bitmap
+capture, CPU blur, PopupWindow, `FLAG_BLUR_BEHIND`, application overlays, or hidden SurfaceControl
+APIs. A diagnostic shader/effect construction failure is caught before `addView` and fails only the
+prototype.
