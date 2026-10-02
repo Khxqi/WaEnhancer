@@ -10,7 +10,6 @@ import android.graphics.RenderEffect
 import android.graphics.RenderNode
 import android.graphics.RuntimeShader
 import android.graphics.Shader
-import android.os.SystemClock
 import android.view.View
 import android.view.ViewGroup
 import android.view.ViewTreeObserver
@@ -84,9 +83,9 @@ class LocalizedBackdropGlassView(
     private val samplePadding = (36f * density).toInt()
     private val rawReplayOffset = 12f * density
     private val renderNode = RenderNode("WaEnhancerLocalizedGlass")
-    private val currentGlassShader = RuntimeShader(GlassShaderProgram.SAMPLED)
-    private val currentGlassEffect =
-        RenderEffect.createRuntimeShaderEffect(currentGlassShader, "backdrop")
+    private var currentGlassShader: RuntimeShader? = null
+    private var currentGlassEffect: RenderEffect? = null
+    private val currentGlassConfiguration = GlassEffectConfigurationState()
     private val builtInBlurEffect = RenderEffect.createBlurEffect(
         28f * density,
         28f * density,
@@ -292,23 +291,7 @@ class LocalizedBackdropGlassView(
             (samplePadding + width).toFloat(),
             (samplePadding + height).toFloat()
         )
-        if (probeCycle.currentMode == GlassVisualProbeMode.CURRENT_GLASS_EXAGGERATED) {
-            configureGlassShader(
-                currentGlassShader,
-                shaderBounds,
-                style.copy(
-                    blurRadiusPx = 32f * density,
-                    refractionStrengthPx = 12f * density,
-                    tintColor = 0xFF42A5FF.toInt(),
-                    tintOpacity = 0.48f,
-                    edgeIntensity = 1f,
-                    highlightIntensity = 0.92f,
-                    depth = 1f,
-                    saturation = 1.28f
-                ),
-                animationProgress = (SystemClock.uptimeMillis() % 4000L) / 4000f
-            )
-        }
+        ensureCurrentGlassEffect()
 
         val started = System.nanoTime()
         val recordingCanvas = renderNode.beginRecording(nodeWidth, nodeHeight)
@@ -358,8 +341,52 @@ class LocalizedBackdropGlassView(
         postInvalidateOnAnimation()
     }
 
+    private fun ensureCurrentGlassEffect() {
+        val exaggeratedStyle = style.copy(
+            blurRadiusPx = 32f * density,
+            refractionStrengthPx = 12f * density,
+            tintColor = 0xFF42A5FF.toInt(),
+            tintOpacity = 0.48f,
+            edgeIntensity = 1f,
+            highlightIntensity = 0.92f,
+            depth = 1f,
+            saturation = 1.28f,
+            animationProgress = FROZEN_GLASS_PROGRESS
+        ).sanitized()
+        val key = GlassEffectConfigurationKey(
+            bounds = GlassEffectBounds(
+                left = shaderBounds.left.toInt(),
+                top = shaderBounds.top.toInt(),
+                right = shaderBounds.right.toInt(),
+                bottom = shaderBounds.bottom.toInt()
+            ),
+            style = exaggeratedStyle
+        )
+        if (!currentGlassConfiguration.needsRebuild(key)) return
+
+        // RenderEffect snapshots the native RuntimeShader builder. Configure every primitive and
+        // color uniform first, then create and cache the immutable native effect.
+        val configuredShader = RuntimeShader(GlassShaderProgram.SAMPLED)
+        configureGlassShader(
+            configuredShader,
+            shaderBounds,
+            exaggeratedStyle,
+            animationProgress = FROZEN_GLASS_PROGRESS
+        )
+        val configuredEffect =
+            RenderEffect.createRuntimeShaderEffect(configuredShader, "backdrop")
+
+        currentGlassShader = configuredShader
+        currentGlassEffect = configuredEffect
+        currentGlassConfiguration.markConfigured(key)
+        if (probeCycle.currentMode == GlassVisualProbeMode.CURRENT_GLASS_EXAGGERATED) {
+            renderNode.setRenderEffect(configuredEffect)
+        }
+    }
+
     private companion object {
         const val PROBE_MODE_DURATION_MS = 3_000L
+        const val FROZEN_GLASS_PROGRESS = 0.5f
     }
 }
 

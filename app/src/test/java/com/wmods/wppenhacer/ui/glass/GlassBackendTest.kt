@@ -97,6 +97,47 @@ class GlassBackendTest {
     }
 
     @Test
+    fun glassEffectIsNotConfiguredBeforeValidBoundsAndStyleExist() {
+        val state = GlassEffectConfigurationState()
+
+        assertFalse(state.isConfigured)
+        assertEquals(0L, state.generation)
+        assertTrue(
+            runCatching {
+                GlassEffectBounds(left = 12, top = 12, right = 12, bottom = 80)
+            }.isFailure
+        )
+    }
+
+    @Test
+    fun glassEffectGenerationChangesForBoundsOrStyleButNotPerFrame() {
+        val state = GlassEffectConfigurationState()
+        val baseStyle = GlassStyle(tintOpacity = 0.48f, animationProgress = 0.5f)
+        val initial = GlassEffectConfigurationKey(
+            bounds = GlassEffectBounds(left = 36, top = 36, right = 200, bottom = 94),
+            style = baseStyle
+        )
+
+        assertTrue(state.needsRebuild(initial))
+        assertEquals(1L, state.markConfigured(initial))
+        assertTrue(state.isConfigured)
+        assertFalse(state.needsRebuild(initial))
+        assertEquals(1L, state.markConfigured(initial))
+
+        val resized = initial.copy(
+            bounds = initial.bounds.copy(right = initial.bounds.right + 1)
+        )
+        assertTrue(state.needsRebuild(resized))
+        assertEquals(2L, state.markConfigured(resized))
+
+        val restyled = resized.copy(
+            style = resized.style.copy(tintOpacity = 0.42f)
+        )
+        assertTrue(state.needsRebuild(restyled))
+        assertEquals(3L, state.markConfigured(restyled))
+    }
+
+    @Test
     fun surfaceParentMustRemainOutsideSamplingSubtree() {
         assertFalse(
             GlassHierarchyPolicy.evaluate(
