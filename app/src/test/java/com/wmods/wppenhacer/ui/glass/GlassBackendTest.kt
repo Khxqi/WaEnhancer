@@ -29,6 +29,71 @@ class GlassBackendTest {
                 firstFrameRendered = true
             ).runtimeVerified
         )
+        assertTrue(
+            GlassRuntimeSnapshot(
+                successfulAttaches = 1,
+                firstFrameRendered = true
+            ).drawPathVerified
+        )
+    }
+
+    @Test
+    fun visualProbeUsesExpectedOrderedModesAndEffects() {
+        assertEquals(
+            listOf(
+                GlassVisualProbeMode.RAW_REPLAY_SHIFTED,
+                GlassVisualProbeMode.BUILTIN_BLUR,
+                GlassVisualProbeMode.RUNTIME_SOLID,
+                GlassVisualProbeMode.RUNTIME_INPUT_TINT,
+                GlassVisualProbeMode.CURRENT_GLASS_EXAGGERATED
+            ),
+            GlassVisualProbePlan.modes
+        )
+        assertEquals(
+            GlassProbeEffectSelection.NONE,
+            GlassVisualProbePlan.effectFor(GlassVisualProbeMode.RAW_REPLAY_SHIFTED)
+        )
+        assertEquals(
+            GlassProbeEffectSelection.BUILTIN_BLUR,
+            GlassVisualProbePlan.effectFor(GlassVisualProbeMode.BUILTIN_BLUR)
+        )
+        assertEquals(
+            GlassProbeEffectSelection.RUNTIME_SOLID,
+            GlassVisualProbePlan.effectFor(GlassVisualProbeMode.RUNTIME_SOLID)
+        )
+        assertEquals(
+            GlassProbeEffectSelection.RUNTIME_INPUT_TINT,
+            GlassVisualProbePlan.effectFor(GlassVisualProbeMode.RUNTIME_INPUT_TINT)
+        )
+        assertEquals(
+            GlassProbeEffectSelection.CURRENT_GLASS,
+            GlassVisualProbePlan.effectFor(GlassVisualProbeMode.CURRENT_GLASS_EXAGGERATED)
+        )
+    }
+
+    @Test
+    fun visualProbeRepeatsAndCountsFullCycles() {
+        val cycle = GlassVisualProbeCycle()
+
+        assertEquals(GlassVisualProbeMode.RAW_REPLAY_SHIFTED, cycle.start())
+        assertEquals(GlassVisualProbeMode.BUILTIN_BLUR, cycle.advance())
+        assertEquals(GlassVisualProbeMode.RUNTIME_SOLID, cycle.advance())
+        assertEquals(GlassVisualProbeMode.RUNTIME_INPUT_TINT, cycle.advance())
+        assertEquals(GlassVisualProbeMode.CURRENT_GLASS_EXAGGERATED, cycle.advance())
+        assertEquals(GlassVisualProbeMode.RAW_REPLAY_SHIFTED, cycle.advance())
+        assertEquals(1L, cycle.cycleCount)
+    }
+
+    @Test
+    fun stoppedVisualProbeDoesNotAdvance() {
+        val cycle = GlassVisualProbeCycle()
+        cycle.start()
+        cycle.advance()
+        cycle.stop()
+
+        assertFalse(cycle.running)
+        assertEquals(GlassVisualProbeMode.BUILTIN_BLUR, cycle.advance())
+        assertEquals(0L, cycle.cycleCount)
     }
 
     @Test

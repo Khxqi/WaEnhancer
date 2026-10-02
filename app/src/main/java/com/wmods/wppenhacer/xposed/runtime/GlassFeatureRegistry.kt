@@ -20,6 +20,7 @@ import com.wmods.wppenhacer.ui.glass.LocalizedGlassEvent
 import com.wmods.wppenhacer.ui.glass.LocalizedGlassFailureStage
 import com.wmods.wppenhacer.ui.glass.LocalizedGlassGeometry
 import com.wmods.wppenhacer.ui.glass.LocalizedGlassMetrics
+import com.wmods.wppenhacer.ui.glass.GlassVisualProbeMode
 import java.util.WeakHashMap
 
 object GlassFeaturePolicy {
@@ -267,21 +268,29 @@ private class GlassPrototypeController(
             depth = 0.78f
         )
         lateinit var view: LocalizedBackdropGlassView
-        view = LocalizedBackdropGlassView(
-            context = activity,
-            hostRoot = samplingRoot,
-            style = style,
-            onMetrics = { metrics -> recordMetrics(metrics) },
-            onGeometry = { geometry -> recordGeometry(geometry) },
-            onDrawMetrics = { metrics -> recordDrawMetrics(metrics) },
-            onEvent = { event -> recordRenderEvent(event) },
-            onFailure = { stage, throwable ->
-                activity.runOnUiThread {
-                    if (surfaces[activity] === view) detach(activity)
-                    recordRenderFailure(activity, stage, throwable)
+        try {
+            view = LocalizedBackdropGlassView(
+                context = activity,
+                hostRoot = samplingRoot,
+                style = style,
+                onMetrics = { metrics -> recordMetrics(metrics) },
+                onGeometry = { geometry -> recordGeometry(geometry) },
+                onDrawMetrics = { metrics -> recordDrawMetrics(metrics) },
+                onProbeModeChanged = { mode, cycleCount ->
+                    recordProbeMode(mode, cycleCount)
+                },
+                onEvent = { event -> recordRenderEvent(event) },
+                onFailure = { stage, throwable ->
+                    activity.runOnUiThread {
+                        if (surfaces[activity] === view) detach(activity)
+                        recordRenderFailure(activity, stage, throwable)
+                    }
                 }
-            }
-        )
+            )
+        } catch (throwable: Throwable) {
+            recordAttachFailure(activity, "view-create", throwable)
+            return
+        }
         val surfaceWidth = (164 * density).toInt()
         val surfaceHeight = (58 * density).toInt()
         RuntimeTrace.event(
@@ -299,6 +308,8 @@ private class GlassPrototypeController(
                 onDrawDuringCaptureCount = 0,
                 normalOnDrawCount = 0,
                 successfulRenderNodeDrawCount = 0,
+                visualProbeMode = null,
+                visualProbeCycleCount = 0,
                 surfaceWidth = surfaceWidth,
                 surfaceHeight = surfaceHeight
             )
@@ -422,6 +433,27 @@ private class GlassPrototypeController(
                 "backend=${GlassBackend.LOCALIZED_SAME_WINDOW_SAMPLED.name} captureMs=${metrics.lastCaptureMs}"
             )
             diagnostics.request("render.first-backdrop-captured")
+        }
+    }
+
+    private fun recordProbeMode(mode: GlassVisualProbeMode, cycleCount: Long) {
+        GlassRuntimeState.update { current ->
+            current.copy(
+                visualProbeMode = mode,
+                visualProbeCycleCount = cycleCount,
+                lastRenderStage = "probe.${mode.name.lowercase()}"
+            )
+        }
+        // Persist only the first pass and its completion. The probe may continue cycling while
+        // WhatsApp is open, but must not turn into continuous cross-process file I/O.
+        if (cycleCount == 0L ||
+            (cycleCount == 1L && mode == GlassVisualProbeMode.RAW_REPLAY_SHIFTED)
+        ) {
+            RuntimeTrace.event(
+                "glass-visual-probe-mode",
+                "mode=${mode.name} cycle=$cycleCount"
+            )
+            diagnostics.request("probe.${mode.name.lowercase()}.$cycleCount")
         }
     }
 

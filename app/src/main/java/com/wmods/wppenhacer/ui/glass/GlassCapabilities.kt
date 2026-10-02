@@ -73,11 +73,17 @@ data class GlassRuntimeSnapshot(
     val onDrawDuringCaptureCount: Long = 0,
     val normalOnDrawCount: Long = 0,
     val successfulRenderNodeDrawCount: Long = 0,
+    val visualProbeMode: GlassVisualProbeMode? = null,
+    val visualProbeCycleCount: Long = 0,
     val rejectedBackends: Set<GlassBackend> = setOf(GlassBackend.CROSS_WINDOW_BLUR_REJECTED),
     val failure: String? = null
 ) {
     val runtimeVerified: Boolean
         get() = successfulAttaches > 0 && firstFrameRendered
+
+    /** Technical display-list/draw-path verification; it is not a pixel-fidelity assertion. */
+    val drawPathVerified: Boolean
+        get() = runtimeVerified
 }
 
 object GlassRuntimeState {

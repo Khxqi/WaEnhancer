@@ -38,7 +38,7 @@ object RuntimeDiagnostics {
         val capabilityStates = capabilities.associateBy { it.id }
 
         return JSONObject().apply {
-            put("schemaVersion", 7)
+            put("schemaVersion", 8)
             put("moduleVersion", session?.moduleVersion ?: BuildConfig.VERSION_NAME)
             put("whatsAppVersionName", session?.whatsAppVersionName ?: JSONObject.NULL)
             put("whatsAppVersionCode", session?.whatsAppVersionCode ?: JSONObject.NULL)
@@ -85,6 +85,11 @@ object RuntimeDiagnostics {
                 })
                 put("backend", glass.backend?.name ?: JSONObject.NULL)
                 put("runtimeVerified", glass.runtimeVerified)
+                put("runtimeVerifiedMeaning", "DRAW_PATH_ONLY")
+                put("drawPathVerified", glass.drawPathVerified)
+                put("visualVerificationStatus", "PENDING_DEVICE_REPORT")
+                put("visualProbeMode", glass.visualProbeMode?.name ?: JSONObject.NULL)
+                put("visualProbeCycleCount", glass.visualProbeCycleCount)
                 put("lifecycleCallbackRegistered", glass.lifecycleCallbackRegistered)
                 put(
                     "lastActivityClass",

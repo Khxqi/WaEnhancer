@@ -9,6 +9,7 @@ import android.graphics.RectF
 import android.graphics.RenderEffect
 import android.graphics.RenderNode
 import android.graphics.RuntimeShader
+import android.graphics.Shader
 import android.os.SystemClock
 import android.view.View
 import android.view.ViewGroup
@@ -75,14 +76,36 @@ class LocalizedBackdropGlassView(
     private val onMetrics: (LocalizedGlassMetrics) -> Unit,
     private val onGeometry: (LocalizedGlassGeometry) -> Unit,
     private val onDrawMetrics: (LocalizedGlassDrawMetrics) -> Unit,
+    private val onProbeModeChanged: (GlassVisualProbeMode, Long) -> Unit,
     private val onEvent: (LocalizedGlassEvent) -> Unit,
     private val onFailure: (LocalizedGlassFailureStage, Throwable) -> Unit
 ) : View(context), ViewTreeObserver.OnPreDrawListener {
     private val density = resources.displayMetrics.density
     private val samplePadding = (36f * density).toInt()
+    private val rawReplayOffset = 12f * density
     private val renderNode = RenderNode("WaEnhancerLocalizedGlass")
-    private val runtimeShader = RuntimeShader(GlassShaderProgram.SAMPLED)
-    private val renderEffect = RenderEffect.createRuntimeShaderEffect(runtimeShader, "backdrop")
+    private val currentGlassShader = RuntimeShader(GlassShaderProgram.SAMPLED)
+    private val currentGlassEffect =
+        RenderEffect.createRuntimeShaderEffect(currentGlassShader, "backdrop")
+    private val builtInBlurEffect = RenderEffect.createBlurEffect(
+        28f * density,
+        28f * density,
+        Shader.TileMode.CLAMP
+    )
+    private val runtimeSolidShader = RuntimeShader(GlassProbeShaderProgram.SOLID)
+    private val runtimeSolidEffect =
+        RenderEffect.createRuntimeShaderEffect(runtimeSolidShader, "backdrop")
+    private val runtimeInputTintShader = RuntimeShader(GlassProbeShaderProgram.INPUT_TINT)
+    private val runtimeInputTintEffect =
+        RenderEffect.createRuntimeShaderEffect(runtimeInputTintShader, "backdrop")
+    private val probeCycle = GlassVisualProbeCycle()
+    private val probeAdvance = object : Runnable {
+        override fun run() {
+            if (!isAttachedToWindow || !probeCycle.running) return
+            applyProbeMode(probeCycle.advance())
+            postDelayed(this, PROBE_MODE_DURATION_MS)
+        }
+    }
     private val surfaceBounds = RectF()
     private val shaderBounds = RectF()
     private val clipPath = Path()
@@ -91,9 +114,9 @@ class LocalizedBackdropGlassView(
     private val labelPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
         color = Color.WHITE
         textAlign = Paint.Align.CENTER
-        textSize = 12f * resources.displayMetrics.scaledDensity
+        textSize = 8f * resources.displayMetrics.scaledDensity
         isFakeBoldText = true
-        letterSpacing = 0.08f
+        letterSpacing = 0.02f
         setShadowLayer(2f, 0f, 1f, 0x88000000.toInt())
     }
 
@@ -119,18 +142,22 @@ class LocalizedBackdropGlassView(
         isFocusable = false
         importantForAccessibility = IMPORTANT_FOR_ACCESSIBILITY_NO_HIDE_DESCENDANTS
         renderNode.setClipToBounds(true)
-        renderNode.setRenderEffect(renderEffect)
     }
 
     override fun onAttachedToWindow() {
         super.onAttachedToWindow()
         hostRoot.viewTreeObserver.addOnPreDrawListener(this)
+        applyProbeMode(probeCycle.start())
+        removeCallbacks(probeAdvance)
+        postDelayed(probeAdvance, PROBE_MODE_DURATION_MS)
     }
 
     override fun onDetachedFromWindow() {
         if (hostRoot.viewTreeObserver.isAlive) {
             hostRoot.viewTreeObserver.removeOnPreDrawListener(this)
         }
+        probeCycle.stop()
+        removeCallbacks(probeAdvance)
         publishDrawMetrics()
         renderNode.discardDisplayList()
         super.onDetachedFromWindow()
@@ -180,7 +207,13 @@ class LocalizedBackdropGlassView(
             val saveCount = canvas.save()
             try {
                 canvas.clipPath(clipPath)
-                canvas.translate(-samplePadding.toFloat(), -samplePadding.toFloat())
+                val diagnosticOffset = if (
+                    probeCycle.currentMode == GlassVisualProbeMode.RAW_REPLAY_SHIFTED
+                ) rawReplayOffset else 0f
+                canvas.translate(
+                    -samplePadding.toFloat() + diagnosticOffset,
+                    -samplePadding.toFloat() + diagnosticOffset
+                )
                 canvas.drawRenderNode(renderNode)
                 successfulRenderNodeDrawCount++
                 if (successfulRenderNodeDrawCount == 60L ||
@@ -192,7 +225,7 @@ class LocalizedBackdropGlassView(
                 canvas.restoreToCount(saveCount)
             }
             canvas.drawText(
-                "GLASS PROTOTYPE",
+                probeCycle.currentMode.name,
                 surfaceBounds.centerX(),
                 surfaceBounds.centerY() + labelPaint.textSize * 0.35f,
                 labelPaint
@@ -259,12 +292,23 @@ class LocalizedBackdropGlassView(
             (samplePadding + width).toFloat(),
             (samplePadding + height).toFloat()
         )
-        configureGlassShader(
-            runtimeShader,
-            shaderBounds,
-            style,
-            animationProgress = (SystemClock.uptimeMillis() % 4000L) / 4000f
-        )
+        if (probeCycle.currentMode == GlassVisualProbeMode.CURRENT_GLASS_EXAGGERATED) {
+            configureGlassShader(
+                currentGlassShader,
+                shaderBounds,
+                style.copy(
+                    blurRadiusPx = 32f * density,
+                    refractionStrengthPx = 12f * density,
+                    tintColor = 0xFF42A5FF.toInt(),
+                    tintOpacity = 0.48f,
+                    edgeIntensity = 1f,
+                    highlightIntensity = 0.92f,
+                    depth = 1f,
+                    saturation = 1.28f
+                ),
+                animationProgress = (SystemClock.uptimeMillis() % 4000L) / 4000f
+            )
+        }
 
         val started = System.nanoTime()
         val recordingCanvas = renderNode.beginRecording(nodeWidth, nodeHeight)
@@ -300,4 +344,42 @@ class LocalizedBackdropGlassView(
             )
         }
     }
+
+    private fun applyProbeMode(mode: GlassVisualProbeMode) {
+        val effect = when (GlassVisualProbePlan.effectFor(mode)) {
+            GlassProbeEffectSelection.NONE -> null
+            GlassProbeEffectSelection.BUILTIN_BLUR -> builtInBlurEffect
+            GlassProbeEffectSelection.RUNTIME_SOLID -> runtimeSolidEffect
+            GlassProbeEffectSelection.RUNTIME_INPUT_TINT -> runtimeInputTintEffect
+            GlassProbeEffectSelection.CURRENT_GLASS -> currentGlassEffect
+        }
+        renderNode.setRenderEffect(effect)
+        onProbeModeChanged(mode, probeCycle.cycleCount)
+        postInvalidateOnAnimation()
+    }
+
+    private companion object {
+        const val PROBE_MODE_DURATION_MS = 3_000L
+    }
+}
+
+@RequiresApi(33)
+private object GlassProbeShaderProgram {
+    const val SOLID = """
+        uniform shader backdrop;
+
+        half4 main(float2 p) {
+            return half4(1.0, 0.0, 0.72, 1.0);
+        }
+    """
+
+    const val INPUT_TINT = """
+        uniform shader backdrop;
+
+        half4 main(float2 p) {
+            half4 source = backdrop.eval(p);
+            half3 diagnostic = half3(1.0, 0.18, 0.0);
+            return half4(mix(source.rgb, diagnostic, 0.62), 1.0);
+        }
+    """
 }
