@@ -10,12 +10,15 @@ import android.view.Gravity
 import android.widget.FrameLayout
 import com.wmods.wppenhacer.ui.glass.GlassBackend
 import com.wmods.wppenhacer.ui.glass.GlassCapabilities
+import com.wmods.wppenhacer.ui.glass.GlassHierarchyPolicy
 import com.wmods.wppenhacer.ui.glass.GlassRuntimeSnapshot
 import com.wmods.wppenhacer.ui.glass.GlassRuntimeState
 import com.wmods.wppenhacer.ui.glass.GlassStyle
 import com.wmods.wppenhacer.ui.glass.LocalizedBackdropGlassView
+import com.wmods.wppenhacer.ui.glass.LocalizedGlassDrawMetrics
 import com.wmods.wppenhacer.ui.glass.LocalizedGlassEvent
 import com.wmods.wppenhacer.ui.glass.LocalizedGlassFailureStage
+import com.wmods.wppenhacer.ui.glass.LocalizedGlassGeometry
 import com.wmods.wppenhacer.ui.glass.LocalizedGlassMetrics
 import java.util.WeakHashMap
 
@@ -172,11 +175,15 @@ private class GlassPrototypeController(
             return
         }
         val contentCandidate: View? = activity.findViewById(android.R.id.content)
+        val surfaceParentCandidate = activity.window.decorView
         val rootClass = contentCandidate?.javaClass?.name
+        val surfaceParentClass = surfaceParentCandidate.javaClass.name
         val isViewGroup = contentCandidate is ViewGroup
         val isFrameLayout = contentCandidate is FrameLayout
         val rootWidth = contentCandidate?.width
         val rootHeight = contentCandidate?.height
+        val surfaceParentWidth = surfaceParentCandidate.width
+        val surfaceParentHeight = surfaceParentCandidate.height
         RuntimeTrace.event(
             "glass-content-root-resolved",
             "class=${rootClass ?: "null"} viewGroup=$isViewGroup frameLayout=$isFrameLayout"
@@ -185,6 +192,11 @@ private class GlassPrototypeController(
             "glass-content-root-dimensions",
             "width=${rootWidth ?: -1} height=${rootHeight ?: -1}"
         )
+        RuntimeTrace.event(
+            "glass-surface-parent-resolved",
+            "class=$surfaceParentClass viewGroup=${surfaceParentCandidate is ViewGroup} " +
+                "frameLayout=${surfaceParentCandidate is FrameLayout}"
+        )
         GlassRuntimeState.update { current ->
             current.copy(
                 lastLifecycleEvent = "attach.content-root-resolved",
@@ -192,7 +204,15 @@ private class GlassPrototypeController(
                 contentRootIsViewGroup = isViewGroup,
                 contentRootIsFrameLayout = isFrameLayout,
                 contentRootWidth = rootWidth,
-                contentRootHeight = rootHeight
+                contentRootHeight = rootHeight,
+                samplingRootClass = rootClass,
+                samplingRootWidth = rootWidth,
+                samplingRootHeight = rootHeight,
+                surfaceParentClass = surfaceParentClass,
+                surfaceParentIsViewGroup = surfaceParentCandidate is ViewGroup,
+                surfaceParentIsFrameLayout = surfaceParentCandidate is FrameLayout,
+                surfaceParentWidth = surfaceParentWidth,
+                surfaceParentHeight = surfaceParentHeight
             )
         }
         if (contentCandidate !is ViewGroup) {
@@ -203,15 +223,39 @@ private class GlassPrototypeController(
             )
             return
         }
-        if (contentCandidate !is FrameLayout) {
+        if (surfaceParentCandidate !is FrameLayout) {
             recordAttachFailure(
                 activity,
-                "content-root-type",
-                IllegalStateException("android.R.id.content is not a FrameLayout: $rootClass")
+                "surface-parent-type",
+                IllegalStateException("window DecorView is not a FrameLayout: $surfaceParentClass")
             )
             return
         }
-        val contentRoot = contentCandidate
+        val samplingRoot = contentCandidate
+        val surfaceParent = surfaceParentCandidate
+        val sameNode = samplingRoot === surfaceParent
+        val parentInsideSamplingSubtree = !sameNode && isDescendantOf(surfaceParent, samplingRoot)
+        val ownership = GlassHierarchyPolicy.evaluate(
+            sameNode = sameNode,
+            surfaceParentInsideSamplingSubtree = parentInsideSamplingSubtree
+        )
+        RuntimeTrace.event(
+            "glass-hierarchy-ownership",
+            "surfaceOutsideSamplingSubtree=${ownership.surfaceOutsideSamplingSubtree}"
+        )
+        GlassRuntimeState.update { current ->
+            current.copy(
+                surfaceOutsideSamplingSubtree = ownership.surfaceOutsideSamplingSubtree
+            )
+        }
+        if (!ownership.surfaceOutsideSamplingSubtree) {
+            recordAttachFailure(
+                activity,
+                "surface-parent-ownership",
+                IllegalStateException("glass surface parent belongs to sampled subtree")
+            )
+            return
+        }
         val density = activity.resources.displayMetrics.density
         val style = GlassStyle(
             blurRadiusPx = 22f * density,
@@ -225,9 +269,11 @@ private class GlassPrototypeController(
         lateinit var view: LocalizedBackdropGlassView
         view = LocalizedBackdropGlassView(
             context = activity,
-            hostRoot = contentRoot,
+            hostRoot = samplingRoot,
             style = style,
             onMetrics = { metrics -> recordMetrics(metrics) },
+            onGeometry = { geometry -> recordGeometry(geometry) },
+            onDrawMetrics = { metrics -> recordDrawMetrics(metrics) },
             onEvent = { event -> recordRenderEvent(event) },
             onFailure = { stage, throwable ->
                 activity.runOnUiThread {
@@ -245,6 +291,14 @@ private class GlassPrototypeController(
         GlassRuntimeState.update { current ->
             current.copy(
                 lastLifecycleEvent = "attach.surface-created",
+                firstPreDrawObserved = false,
+                firstBackdropRecordingStarted = false,
+                firstFrameRendered = false,
+                capturedFrames = 0,
+                onDrawEntryCount = 0,
+                onDrawDuringCaptureCount = 0,
+                normalOnDrawCount = 0,
+                successfulRenderNodeDrawCount = 0,
                 surfaceWidth = surfaceWidth,
                 surfaceHeight = surfaceHeight
             )
@@ -258,7 +312,7 @@ private class GlassPrototypeController(
             marginEnd = (18 * density).toInt()
         }
         try {
-            contentRoot.addView(view, params)
+            surfaceParent.addView(view, params)
             surfaces[activity] = view
             GlassRuntimeState.update { current ->
                 current.copy(
@@ -274,13 +328,74 @@ private class GlassPrototypeController(
             }
             RuntimeTrace.event(
                 "glass-add-view-success",
-                "activity=$activityClass surfaces=${surfaces.size}"
+                "activity=$activityClass parent=$surfaceParentClass surfaces=${surfaces.size}"
             )
+            view.requestLayout()
+            view.post { if (view.isAttachedToWindow) view.postInvalidateOnAnimation() }
             diagnostics.request("attach.succeeded")
         } catch (throwable: Throwable) {
-            runCatching { contentRoot.removeView(view) }
+            runCatching { surfaceParent.removeView(view) }
             RuntimeTrace.event("glass-add-view-failure", DiagnosticSanitizer.failureSummary(throwable))
             recordAttachFailure(activity, "add-view", throwable)
+        }
+    }
+
+    private fun recordGeometry(geometry: LocalizedGlassGeometry) {
+        RuntimeTrace.event(
+            "glass-surface-geometry",
+            "windowX=${geometry.surfaceWindowX} windowY=${geometry.surfaceWindowY} " +
+                "width=${geometry.surfaceWidth} height=${geometry.surfaceHeight}"
+        )
+        GlassRuntimeState.update { current ->
+            current.copy(
+                samplingRootWindowX = geometry.samplingRootWindowX,
+                samplingRootWindowY = geometry.samplingRootWindowY,
+                surfaceWindowX = geometry.surfaceWindowX,
+                surfaceWindowY = geometry.surfaceWindowY,
+                surfaceLeftInSamplingRoot = geometry.surfaceLeftInSamplingRoot,
+                surfaceTopInSamplingRoot = geometry.surfaceTopInSamplingRoot,
+                surfaceWidth = geometry.surfaceWidth,
+                surfaceHeight = geometry.surfaceHeight
+            )
+        }
+        diagnostics.request("surface.geometry")
+    }
+
+    private fun recordDrawMetrics(metrics: LocalizedGlassDrawMetrics) {
+        val previous = GlassRuntimeState.snapshot()
+        GlassRuntimeState.update { current ->
+            current.copy(
+                onDrawEntryCount = metrics.onDrawEntryCount,
+                onDrawDuringCaptureCount = metrics.onDrawDuringCaptureCount,
+                normalOnDrawCount = metrics.normalOnDrawCount,
+                successfulRenderNodeDrawCount = metrics.successfulRenderNodeDrawCount
+            )
+        }
+        when {
+            previous.onDrawDuringCaptureCount == 0L && metrics.onDrawDuringCaptureCount > 0L -> {
+                RuntimeTrace.event("glass-first-on-draw-during-capture")
+                diagnostics.request("render.on-draw-during-capture")
+            }
+
+            previous.normalOnDrawCount == 0L && metrics.normalOnDrawCount > 0L -> {
+                RuntimeTrace.event("glass-first-normal-on-draw")
+                diagnostics.request("render.first-normal-on-draw")
+            }
+
+            previous.successfulRenderNodeDrawCount == 0L &&
+                metrics.successfulRenderNodeDrawCount > 0L -> {
+                RuntimeTrace.event("glass-first-render-node-draw")
+                diagnostics.request("render.first-render-node-draw")
+            }
+
+            metrics.successfulRenderNodeDrawCount == 60L ||
+                metrics.successfulRenderNodeDrawCount == 300L -> {
+                RuntimeTrace.event(
+                    "glass-render-draw-summary",
+                    "successfulDraws=${metrics.successfulRenderNodeDrawCount}"
+                )
+                diagnostics.request("render.draw-summary")
+            }
         }
     }
 
@@ -420,5 +535,14 @@ private class GlassPrototypeController(
             )
         }
         diagnostics.request(lifecycleEvent)
+    }
+
+    private fun isDescendantOf(candidate: View, ancestor: View): Boolean {
+        var current: View? = candidate
+        while (current != null) {
+            if (current === ancestor) return true
+            current = current.parent as? View
+        }
+        return false
     }
 }

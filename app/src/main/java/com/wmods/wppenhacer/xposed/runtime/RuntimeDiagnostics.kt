@@ -38,7 +38,7 @@ object RuntimeDiagnostics {
         val capabilityStates = capabilities.associateBy { it.id }
 
         return JSONObject().apply {
-            put("schemaVersion", 6)
+            put("schemaVersion", 7)
             put("moduleVersion", session?.moduleVersion ?: BuildConfig.VERSION_NAME)
             put("whatsAppVersionName", session?.whatsAppVersionName ?: JSONObject.NULL)
             put("whatsAppVersionCode", session?.whatsAppVersionCode ?: JSONObject.NULL)
@@ -104,6 +104,36 @@ object RuntimeDiagnostics {
                 put("contentRootIsFrameLayout", glass.contentRootIsFrameLayout ?: JSONObject.NULL)
                 put("contentRootWidth", glass.contentRootWidth ?: JSONObject.NULL)
                 put("contentRootHeight", glass.contentRootHeight ?: JSONObject.NULL)
+                put(
+                    "samplingRootClass",
+                    glass.samplingRootClass?.let(DiagnosticSanitizer::sanitize) ?: JSONObject.NULL
+                )
+                put("samplingRootWidth", glass.samplingRootWidth ?: JSONObject.NULL)
+                put("samplingRootHeight", glass.samplingRootHeight ?: JSONObject.NULL)
+                put(
+                    "surfaceParentClass",
+                    glass.surfaceParentClass?.let(DiagnosticSanitizer::sanitize) ?: JSONObject.NULL
+                )
+                put("surfaceParentIsViewGroup", glass.surfaceParentIsViewGroup ?: JSONObject.NULL)
+                put("surfaceParentIsFrameLayout", glass.surfaceParentIsFrameLayout ?: JSONObject.NULL)
+                put("surfaceParentWidth", glass.surfaceParentWidth ?: JSONObject.NULL)
+                put("surfaceParentHeight", glass.surfaceParentHeight ?: JSONObject.NULL)
+                put(
+                    "surfaceOutsideSamplingSubtree",
+                    glass.surfaceOutsideSamplingSubtree ?: JSONObject.NULL
+                )
+                put("samplingRootWindowX", glass.samplingRootWindowX ?: JSONObject.NULL)
+                put("samplingRootWindowY", glass.samplingRootWindowY ?: JSONObject.NULL)
+                put("surfaceWindowX", glass.surfaceWindowX ?: JSONObject.NULL)
+                put("surfaceWindowY", glass.surfaceWindowY ?: JSONObject.NULL)
+                put(
+                    "surfaceLeftInSamplingRoot",
+                    glass.surfaceLeftInSamplingRoot ?: JSONObject.NULL
+                )
+                put(
+                    "surfaceTopInSamplingRoot",
+                    glass.surfaceTopInSamplingRoot ?: JSONObject.NULL
+                )
                 put("surfaceWidth", glass.surfaceWidth ?: JSONObject.NULL)
                 put("surfaceHeight", glass.surfaceHeight ?: JSONObject.NULL)
                 put("firstPreDrawObserved", glass.firstPreDrawObserved)
@@ -123,6 +153,10 @@ object RuntimeDiagnostics {
                 put("lastCaptureMs", glass.lastCaptureMs ?: JSONObject.NULL)
                 put("worstCaptureMs", glass.worstCaptureMs ?: JSONObject.NULL)
                 put("approximateRenderNodeBytes", glass.approximateRenderNodeBytes ?: JSONObject.NULL)
+                put("onDrawEntryCount", glass.onDrawEntryCount)
+                put("onDrawDuringCaptureCount", glass.onDrawDuringCaptureCount)
+                put("normalOnDrawCount", glass.normalOnDrawCount)
+                put("successfulRenderNodeDrawCount", glass.successfulRenderNodeDrawCount)
                 put("rejectedBackends", JSONArray().apply {
                     glass.rejectedBackends.sortedBy { it.name }.forEach { put(it.name) }
                 })

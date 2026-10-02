@@ -23,6 +23,28 @@ data class LocalizedGlassMetrics(
     val hardwareAccelerated: Boolean
 )
 
+data class LocalizedGlassGeometry(
+    val samplingRootWindowX: Int,
+    val samplingRootWindowY: Int,
+    val surfaceWindowX: Int,
+    val surfaceWindowY: Int,
+    val surfaceWidth: Int,
+    val surfaceHeight: Int
+) {
+    val surfaceLeftInSamplingRoot: Int
+        get() = surfaceWindowX - samplingRootWindowX
+
+    val surfaceTopInSamplingRoot: Int
+        get() = surfaceWindowY - samplingRootWindowY
+}
+
+data class LocalizedGlassDrawMetrics(
+    val onDrawEntryCount: Long,
+    val onDrawDuringCaptureCount: Long,
+    val normalOnDrawCount: Long,
+    val successfulRenderNodeDrawCount: Long
+)
+
 enum class LocalizedGlassEvent {
     FIRST_PRE_DRAW,
     FIRST_BACKDROP_RECORDING,
@@ -37,8 +59,9 @@ enum class LocalizedGlassFailureStage {
 
 /**
  * Records the host hierarchy into a retained hardware display list, translated and clipped to this
- * view's bounds plus a small sampling margin. The view excludes itself while that display list is
- * recorded, so replay cannot recursively sample the previous glass result.
+ * view's bounds plus a small sampling margin. The controller attaches this view outside hostRoot's
+ * subtree, providing structural exclusion from the sampled display list. recordingBackdrop remains
+ * a defensive guard rather than the primary recursion-prevention mechanism.
  *
  * This is an intentionally bounded feasibility path: it allocates no frame bitmaps and never uses
  * PixelCopy, but View.draw still traverses the host hierarchy once per recorded frame. Device frame
@@ -50,6 +73,8 @@ class LocalizedBackdropGlassView(
     private val hostRoot: ViewGroup,
     private val style: GlassStyle,
     private val onMetrics: (LocalizedGlassMetrics) -> Unit,
+    private val onGeometry: (LocalizedGlassGeometry) -> Unit,
+    private val onDrawMetrics: (LocalizedGlassDrawMetrics) -> Unit,
     private val onEvent: (LocalizedGlassEvent) -> Unit,
     private val onFailure: (LocalizedGlassFailureStage, Throwable) -> Unit
 ) : View(context), ViewTreeObserver.OnPreDrawListener {
@@ -83,6 +108,11 @@ class LocalizedBackdropGlassView(
     private var firstRecordingReported = false
     private var firstCaptureReported = false
     private var firstRenderedReported = false
+    private var firstGeometryReported = false
+    private var onDrawEntryCount = 0L
+    private var onDrawDuringCaptureCount = 0L
+    private var normalOnDrawCount = 0L
+    private var successfulRenderNodeDrawCount = 0L
 
     init {
         isClickable = false
@@ -101,6 +131,7 @@ class LocalizedBackdropGlassView(
         if (hostRoot.viewTreeObserver.isAlive) {
             hostRoot.viewTreeObserver.removeOnPreDrawListener(this)
         }
+        publishDrawMetrics()
         renderNode.discardDisplayList()
         super.onDetachedFromWindow()
     }
@@ -112,6 +143,7 @@ class LocalizedBackdropGlassView(
         }
         if (!recordingFailed && isShown && width > 0 && height > 0) {
             try {
+                reportGeometryOnce()
                 if (!firstRecordingReported) {
                     firstRecordingReported = true
                     onEvent(LocalizedGlassEvent.FIRST_BACKDROP_RECORDING)
@@ -127,7 +159,15 @@ class LocalizedBackdropGlassView(
     }
 
     override fun onDraw(canvas: Canvas) {
-        if (recordingBackdrop || recordingFailed || !renderNode.hasDisplayList()) return
+        onDrawEntryCount++
+        if (recordingBackdrop) {
+            onDrawDuringCaptureCount++
+            if (onDrawDuringCaptureCount == 1L) publishDrawMetrics()
+            return
+        }
+        normalOnDrawCount++
+        if (normalOnDrawCount == 1L) publishDrawMetrics()
+        if (recordingFailed || !renderNode.hasDisplayList()) return
         try {
             surfaceBounds.set(0f, 0f, width.toFloat(), height.toFloat())
             clipPath.rewind()
@@ -142,6 +182,12 @@ class LocalizedBackdropGlassView(
                 canvas.clipPath(clipPath)
                 canvas.translate(-samplePadding.toFloat(), -samplePadding.toFloat())
                 canvas.drawRenderNode(renderNode)
+                successfulRenderNodeDrawCount++
+                if (successfulRenderNodeDrawCount == 60L ||
+                    successfulRenderNodeDrawCount == 300L
+                ) {
+                    publishDrawMetrics()
+                }
             } finally {
                 canvas.restoreToCount(saveCount)
             }
@@ -153,12 +199,41 @@ class LocalizedBackdropGlassView(
             )
             if (!firstRenderedReported) {
                 firstRenderedReported = true
+                publishDrawMetrics()
                 onEvent(LocalizedGlassEvent.FIRST_FRAME_RENDERED)
             }
         } catch (throwable: Throwable) {
             recordingFailed = true
             onFailure(LocalizedGlassFailureStage.RENDER_NODE_DRAW, throwable)
         }
+    }
+
+    private fun reportGeometryOnce() {
+        if (firstGeometryReported) return
+        hostRoot.getLocationInWindow(hostLocation)
+        getLocationInWindow(surfaceLocation)
+        firstGeometryReported = true
+        onGeometry(
+            LocalizedGlassGeometry(
+                samplingRootWindowX = hostLocation[0],
+                samplingRootWindowY = hostLocation[1],
+                surfaceWindowX = surfaceLocation[0],
+                surfaceWindowY = surfaceLocation[1],
+                surfaceWidth = width,
+                surfaceHeight = height
+            )
+        )
+    }
+
+    private fun publishDrawMetrics() {
+        onDrawMetrics(
+            LocalizedGlassDrawMetrics(
+                onDrawEntryCount = onDrawEntryCount,
+                onDrawDuringCaptureCount = onDrawDuringCaptureCount,
+                normalOnDrawCount = normalOnDrawCount,
+                successfulRenderNodeDrawCount = successfulRenderNodeDrawCount
+            )
+        )
     }
 
     private fun recordLocalizedBackdrop() {
