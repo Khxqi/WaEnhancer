@@ -429,3 +429,44 @@ capsule clipping, and structural overlay exclusion. It does not use PixelCopy, s
 capture, CPU blur, PopupWindow, `FLAG_BLUR_BEHIND`, application overlays, or hidden SurfaceControl
 APIs. A diagnostic shader/effect construction failure is caught before `addView` and fails only the
 prototype.
+
+## Full-shader uniform snapshot correction
+
+The OnePlus 15 run of `F5A7E87C` isolated the remaining failure precisely:
+
+| Probe mode | Device result |
+|---|---|
+| `RAW_REPLAY_SHIFTED` | Pass: shifted WhatsApp pixels were visible |
+| `BUILTIN_BLUR` | Pass: the replayed content was visibly blurred |
+| `RUNTIME_SOLID` | Pass: the capsule became vivid magenta |
+| `RUNTIME_INPUT_TINT` | Pass: real sampled pixels remained visible under an orange/red RuntimeShader tint |
+| `CURRENT_GLASS_EXAGGERATED` | Fail: almost black/dark gray, without meaningful glass stages |
+
+This proves the host capture, retained RenderNode, replay, built-in RenderEffect, RuntimeShader
+execution, `backdrop` binding, and `backdrop.eval(p)` path on OxygenOS 16. It leaves only the full
+`GlassShaderProgram.SAMPLED` uniform/configuration lifecycle unresolved; lifecycle, attachment,
+ownership, coordinate mapping, and input binding are no longer suspected.
+
+The full-glass effect had previously been constructed immediately after `RuntimeShader`, before
+`center`, `halfSize`, blur, refraction, tint, edge, highlight, depth, saturation, progress, and color
+uniforms were initialized. Primitive uniforms default to zero, while the color uniform is undefined
+until initialized. `RenderEffect.createRuntimeShaderEffect` creates a native image-filter effect
+from the shader builder at that moment. The near-black output is consistent with the resulting
+zero/default configuration.
+
+`LocalizedBackdropGlassView` now delays construction of the full-glass shader/effect until valid
+sample-padded bounds exist. It configures **all** uniforms first, creates the RenderEffect second,
+and caches both. `GlassEffectConfigurationState` records the configured bounds/style generation:
+unchanged frames reuse the same effect, while a real bounds or style change creates exactly one new
+configured effect. A current-mode effect is never installed before that state is configured.
+
+The pulse progress is frozen at `0.5` for this validation build. There is no per-frame uniform
+mutation and no per-frame RenderEffect allocation. The exaggerated parameters remain intentionally
+obvious: blue tint at `0.48`, maximum edge intensity, strong highlight/depth/saturation, and the
+existing high blur/refraction request. The five-mode probe remains unchanged for one direct
+before/after device cycle.
+
+This correction does not alter the sampling bounds, window-coordinate mapping, DecorView/content
+ownership, recovery gates, privacy registry, official-package scope, or any other probe mode. Phase
+4 remains unaccepted until `CURRENT_GLASS_EXAGGERATED` visibly shows sampled WhatsApp content with
+clear blur/refraction, blue tint, and highlight on the target device.
