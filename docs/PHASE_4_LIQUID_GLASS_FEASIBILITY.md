@@ -171,7 +171,7 @@ requires configuration transport to succeed and all three recovery gates to perm
 
 ## Diagnostics and performance instrumentation
 
-Runtime diagnostics schema 6 includes `glass` with the experimental flag, RuntimeShader/RenderEffect/
+Runtime diagnostics schema 7 includes `glass` with the experimental flag, RuntimeShader/RenderEffect/
 localized/cross-window/high-end capability flags, active backend, rejected backend list, attached
 surface count, hardware acceleration state, captured frame count, last/worst recording duration,
 approximate RenderNode memory, and a sanitized failure. It does not include WhatsApp content or
@@ -355,3 +355,33 @@ At the same milestone, the existing feature record is marked `runtimeVerified=tr
 record the real class and both structural booleans and the controller leaves stock WhatsApp intact.
 No alternative root traversal, PopupWindow, cross-window blur, privacy hook, or renderer fallback
 was introduced by this pass.
+
+## Same-window display-list ownership correction
+
+The OnePlus 15 result from `5FD61DF4` isolated a capture-only state: the surface attached, pre-draw
+ran, and one localized backdrop RenderNode was recorded in about 0.336 ms, but the glass view never
+completed a normal draw. There was no renderer exception. The implementation attached the surface
+to `android.R.id.content` and also called `draw()` on that same hierarchy while recording the
+backdrop. Consequently the sampled traversal contained the glass child itself. Its defensive
+`recordingBackdrop` guard returned an empty child draw during that nested traversal, but did not
+provide structural display-list isolation.
+
+The corrected same-window ownership is:
+
+- sampling root: `android.R.id.content`, containing only WhatsApp content;
+- surface parent: the Activity window's `DecorView`, accepted only when it is a `FrameLayout`;
+- required relationship: the surface parent is neither the sampling root nor a descendant of it;
+- coordinate mapping: both sampling root and surface use window coordinates, and their difference
+  translates the retained RenderNode to the exact region behind the pill plus blur padding.
+
+The surface remains in the same Activity window and remains non-clickable, non-focusable, and
+accessibility-hidden. No extra Window, overlay permission, PopupWindow, PixelCopy, bitmap capture,
+CPU blur, or hidden SurfaceControl API is used. If the DecorView is unsuitable or the ownership
+check fails, only the prototype fails and stock WhatsApp remains intact.
+
+Schema 7 records the sampling-root and surface-parent classes and dimensions, confirms
+`surfaceOutsideSamplingSubtree`, records both window origins and surface bounds, and adds bounded
+draw counters: total onDraw entries, draws attempted during capture, normal onDraw attempts, and
+successful RenderNode draws. Milestones are traced/published only on their first transition; there
+is no per-frame diagnostic I/O. Runtime verification still requires a successful attachment and a
+completed normal localized RenderNode frame.
