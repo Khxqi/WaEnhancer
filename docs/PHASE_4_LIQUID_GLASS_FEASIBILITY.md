@@ -2,8 +2,9 @@
 
 This document records only the Phase 4 implementation. It is a rendering feasibility prototype,
 not a WhatsApp redesign and not a declaration that the renderer is ready for Phase 5. Phase 3
-privacy behavior is unchanged. Real-device visual quality and performance remain a user acceptance
-gate on the OnePlus 15.
+privacy behavior is unchanged. The companion Glass Lab passed its initial OnePlus 15 test with
+`RUNTIME_SHADER_SAMPLED`, including visible sampled refraction. The first WhatsApp compositor-blur
+prototype failed its visual gate; the replacement described below still requires device validation.
 
 ## Baseline and scope
 
@@ -62,7 +63,8 @@ reference remains credited in `THIRD_PARTY_NOTICES.md` as research provenance on
 | Inject Compose + AndroidLiquidGlass | High only when Compose owns the backdrop; it would not own WhatsApp's native scene | High: foreign Compose runtime and classloader surface | High | Rejected for WhatsApp injection |
 | Native View + sampled RuntimeShader/AGSL | High in a controlled scene with a caller-owned `Shader` | Low in companion app; API 33+ | No new dependency | Selected for Glass Lab |
 | RenderEffect on an overlay View | Filters the overlay's RenderNode, not arbitrary pixels behind it | Low | No new dependency | Detected, but not misrepresented as backdrop blur |
-| App-attached popup + cross-window blur | Real system/GPU backdrop blur when the platform and OEM compositor enable it | Medium; isolated and removable | No new dependency or overlay permission | Selected experimental WhatsApp path |
+| App-attached popup + cross-window blur | OEM compositor decides the blurred region | Medium; isolated but behavior is OEM-dependent | No new dependency or overlay permission | **Rejected:** OxygenOS 16 blurred the entire WhatsApp content behind the popup window |
+| Same-window localized RenderNode replay + AGSL | Replays current host content into a retained GPU display list clipped to the pill plus sampling margin | Medium; one additional host view-tree recording pass per frame | No new dependency | Selected second WhatsApp feasibility path |
 | Layered Canvas surface | No real blur/refraction; stable tint/highlight/depth cue only | Low | No new dependency | Explicit fallback |
 | PixelCopy/screenshot + CPU blur | Can sample pixels but creates latency, allocation, privacy, and recursion problems | High | High frame cost | Rejected |
 
@@ -80,10 +82,16 @@ The native engine is under `com.wmods.wppenhacer.ui.glass`:
   directional highlight. It never captures the screen.
 - `LayeredGlassRenderer`: hardware Canvas tint/gradient/edge fallback. It is deliberately reported
   as `LAYERED_GPU_FALLBACK`, not as true Liquid Glass.
-- `GlassCapabilities`: detects RuntimeShader (API 33), RenderEffect (API 31), current cross-window
-  blur availability, and low-RAM/high-end graphics context.
-- `GlassBackend`: `RUNTIME_SHADER_SAMPLED`, `CROSS_WINDOW_BLUR`, or
-  `LAYERED_GPU_FALLBACK`.
+- `LocalizedBackdropGlassView`: API 33+ same-window prototype. It records the activity content root
+  into one retained `RenderNode`, translated and clipped to the glass bounds plus a fixed sampling
+  margin. A RuntimeShader RenderEffect receives that node as its `backdrop` input. The overlay skips
+  itself during recording, preventing recursive mirror capture.
+- `GlassCapabilities`: detects RuntimeShader (API 33), RenderEffect (API 31), localized same-window
+  support, current cross-window blur availability for diagnostics, and low-RAM/high-end context.
+- `GlassBackend`: `RUNTIME_SHADER_SAMPLED` for the lab,
+  `LOCALIZED_SAME_WINDOW_SAMPLED` for the replacement WhatsApp prototype,
+  `CROSS_WINDOW_BLUR_REJECTED` as a recorded rejected backend, or
+  `LAYERED_GPU_FALLBACK` for the explicit non-glass lab comparison.
 
 GPU objects, paths, paints, matrices, and the lab backdrop shader are retained. No bitmap or shader
 is allocated from the per-frame draw callback. The lab allocates one detailed bitmap when its size
@@ -107,21 +115,47 @@ it would add the exact runtime/dependency risk being evaluated. The lab instead 
 native backend against its explicitly named fallback. Visual equivalence to AndroidLiquidGlass is
 not claimed; the user must judge depth, refraction, highlight, and motion on the target device.
 
-## Isolated WhatsApp prototype
+## First WhatsApp prototype: rejected on device
+
+The first implementation attached a non-touchable `PopupWindow` and requested
+`FLAG_BLUR_BEHIND`. On the OnePlus 15 / OxygenOS 16, the pill was positioned correctly but the OEM
+compositor blurred the entire WhatsApp content behind the popup window. This violates the primary
+localized-rendering requirement. That path has been removed from active code and is retained only
+as `CROSS_WINDOW_BLUR_REJECTED` diagnostic/provenance. It is not a fallback and is not suitable for
+Phase 5.
+
+## Second WhatsApp prototype: localized same-window sampling
 
 Feature ID: `visual.experimental.liquid-glass-prototype`.
 
-`GlassPrototypeController` registers an `Application.ActivityLifecycleCallbacks` instance from the
-Phase 2/3 `FeatureRegistry`. On activity resume it creates one small, non-focusable, non-touchable
-application-token `PopupWindow` near the top-right of the current activity. It uses public Android
-framework lifecycle/window APIs and does not resolve or guess an obfuscated WhatsApp class. On pause,
-destroy, feature rollback, or process exit the popup is dismissed.
+`GlassPrototypeController` still uses the Phase 2/3 `FeatureRegistry` and public
+`Application.ActivityLifecycleCallbacks`, without resolving any obfuscated WhatsApp class. On
+activity resume it inserts one non-clickable, non-focusable `LocalizedBackdropGlassView` into the
+standard `android.R.id.content` `FrameLayout`. Pause, destroy, rollback, or process exit removes the
+view and its pre-draw listener. No popup, extra window, overlay permission, window blur flag, or OEM
+blur API is used.
 
-On API 31+ the controller checks current `WindowManager.isCrossWindowBlurEnabled`, then requests
-`FLAG_BLUR_BEHIND` and a bounded blur-behind radius for the popup window. If the compositor reports
-blur unavailable or applying window parameters fails, the surface stays on the stable layered GPU
-fallback. No `TYPE_APPLICATION_OVERLAY` window or overlay permission is used. The popup cannot accept
-touch or focus and therefore must not intercept WhatsApp interaction.
+Immediately before a normal frame is drawn, the view records the existing content root into a
+retained hardware `RenderNode`. The recording canvas is translated so only the pill's local region
+plus 36 dp blur/refraction padding lands inside the node. The recording is clipped to that node.
+While recording, the glass view's own draw path is disabled; this prevents the new sample from
+containing the preceding glass result. The retained node is then filtered using
+`RenderEffect.createRuntimeShaderEffect`, reusing the lab's independently authored sampled blur,
+refraction, tint, rim, highlight, and depth stages, and is drawn only inside the capsule path.
+Everything outside that capsule receives no effect.
+
+This does not copy pixels into a bitmap and does not use PixelCopy, screenshots, CPU blur, or
+per-frame bitmap allocation. It does, however, traverse the host view hierarchy once more to record
+each dynamic sample. Canvas clipping bounds GPU recording/output, but it may not eliminate all CPU
+work performed by `View.draw`. That overhead is the central performance risk and must be measured on
+the OnePlus 15. If it is unacceptable or view-tree replay is unstable, public Android APIs have not
+met this prototype's production gate; the implementation must not be relabeled as successful or
+replaced with simple tint.
+
+The active feature requires the named `visual.glass.localized-same-window` capability (Android 13+
+RuntimeShader/RenderNode effect path). Unsupported or non-hardware activities fail locally and keep
+stock WhatsApp. There is intentionally no layered WhatsApp fallback because a tint-only surface is
+not the requested Liquid Glass behavior.
 
 The preference `runtime_enable_liquid_glass_prototype` defaults to false. Installation additionally
 requires configuration transport to succeed and all three recovery gates to permit it:
@@ -133,13 +167,15 @@ requires configuration transport to succeed and all three recovery gates to perm
 | Disable visual modifications | Not installed |
 | Configuration failed closed | Not installed |
 | Experimental toggle off | Not installed |
-| Renderer/window failure | Failure isolated; popup removed or fallback used; privacy registry continues |
+| Renderer/view-tree failure | Failure isolated; surface removed, stock UI remains, privacy registry continues |
 
 ## Diagnostics and performance instrumentation
 
-Runtime diagnostics schema 3 adds `glass` with the experimental flag, RuntimeShader/RenderEffect/
-cross-window/high-end capability flags, active backend, attached surface count, hardware acceleration
-state, and a sanitized initialization failure. It does not include WhatsApp content or identifiers.
+Runtime diagnostics schema 4 adds `glass` with the experimental flag, RuntimeShader/RenderEffect/
+localized/cross-window/high-end capability flags, active backend, rejected backend list, attached
+surface count, hardware acceleration state, captured frame count, last/worst recording duration,
+approximate RenderNode memory, and a sanitized failure. It does not include WhatsApp content or
+identifiers. `CROSS_WINDOW_BLUR_REJECTED` can never be reported as the active backend.
 
 `GlassFrameMonitor` uses Android `Window.OnFrameMetricsAvailableListener` in the companion Glass Lab.
 It reports observed frames, frames over 1.5 times the display refresh budget, worst total frame time,
@@ -177,33 +213,45 @@ Target: OnePlus 15, Android 16, OxygenOS 16, arm64, KernelSU Next, LSPosed, offi
 4. Check the lab for black frames, stale samples, clipping errors, blur/refraction lag, edge seams,
    flicker, ghost views, memory growth, and excessive slow-frame count.
 5. Enable the experimental prototype, force-stop WhatsApp, and cold start it. Confirm exactly one
-   `GLASS PROTOTYPE` pill appears, content behind it remains dynamic, and the pill accepts no touch.
-6. Repeat chats scrolling, fast scrolling, keyboard open/close, background/foreground, activity
-   transitions, applicable rotation, system light/dark mode, and three WhatsApp restarts. Watch for
-   z-order errors, full-screen blur, stale blur, ghost popups, touch interception, crashes, and jank.
-7. Export runtime diagnostics and record `glass.backend`, capability flags, failure, and attached
-   surface count. A layered fallback is stable but is not visual proof of Liquid Glass.
-8. Capture matched stock/prototype `gfxinfo` and `meminfo` files using the commands above.
-9. Turn on Disable visual modifications, restart WhatsApp, and confirm the pill is absent while
+   `GLASS PROTOTYPE` pill appears. Before scrolling, verify every pixel outside the capsule remains
+   as sharp as the toggle-off baseline; any whole-window blur is an immediate failure.
+6. Slowly and then rapidly scroll the chats list underneath the pill. Confirm only content inside the
+   pill is sampled, the sample tracks movement, refraction moves with the content, and no stale,
+   black, mirrored, recursively repeated, or wrongly clipped frame appears.
+7. Tap and swipe immediately beside and directly through the pill, then open/close the keyboard.
+   Confirm it intercepts no touch, does not shift resize behavior, and leaves no ghost surface.
+8. Repeat background/foreground, conversation and Settings transitions, applicable rotation,
+   system light/dark changes, and three force-stop/cold-start cycles. Watch for z-order errors,
+   duplicate surfaces, crashes, memory growth, and jank.
+9. Export runtime diagnostics. Require `glass.backend=LOCALIZED_SAME_WINDOW_SAMPLED`, one attached
+   surface in a resumed activity, increasing `capturedFrames`, no failure, and
+   `CROSS_WINDOW_BLUR_REJECTED` only under `rejectedBackends`. `LAYERED_GPU_FALLBACK` is not an
+   acceptable WhatsApp result.
+10. Capture matched stock/prototype `gfxinfo` and `meminfo` files using the commands above. Use equal
+    30-60 second chat-list scroll/transition sequences and compare slow frames, worst frames, and
+    total PSS; do not compare unmatched workloads.
+11. Turn on Disable visual modifications, restart WhatsApp, and confirm the pill is absent while
    privacy features remain available. Repeat for Startup safe mode and Disable all hooks.
-10. Clear all recovery switches, keep or disable the prototype as desired, restart, and confirm the
+12. Clear all recovery switches, keep or disable the prototype as desired, restart, and confirm the
     expected state is restored.
 
 ## Known limitations and risks
 
-- The WhatsApp popup can request real cross-window blur, but arbitrary backdrop refraction is not
-  available through standard child-View APIs. The sampled AGSL path is therefore lab-only.
-- Cross-window blur is compositor/OEM controlled and may be disabled dynamically by battery saver,
-  media tunneling, or device policy. The layered surface remains visible, but diagnostics are updated
-  on attachment rather than continuously listening for compositor changes.
-- Popup window blur behavior and clipping must be verified on OxygenOS 16; Phase 4 does not claim it
-  is visually accepted.
+- OxygenOS 16 demonstrated that popup `FLAG_BLUR_BEHIND` affects the whole host content, so that path
+  is rejected and no longer installed.
+- The localized path is public-API and GPU-backed, but it records the host View hierarchy once per
+  dynamic frame. The GPU output is spatially bounded; CPU traversal cost is not guaranteed to be.
+- `SurfaceView`, `TextureView`, protected surfaces, or compositor-owned content may not replay like
+  ordinary Views and can appear blank/stale inside the pill. This must be tested around media.
+- Calling `View.draw` during pre-draw is a feasibility technique, not a platform-provided backdrop
+  capture API. Re-entrancy and vendor rendering behavior remain device-test risks.
 - The nine-tap sampled shader is bounded and allocation-free during draw, but its real cost at the
   OnePlus 15 refresh rate is unknown until measured.
 - The lab's one backdrop bitmap is intentionally a controlled test asset. It is rebuilt on size or
   theme change and is not a production WhatsApp capture mechanism.
-- A successful installer means the lifecycle controller was registered, not that visual behavior was
-  verified. `runtimeVerified` remains false until real-device testing supplies evidence.
+- A successful installer means the lifecycle controller was registered. The active backend is not
+  reported until the first hardware RenderNode recording succeeds, and `runtimeVerified` remains
+  false until real-device testing supplies evidence.
 - No full AndroidLiquidGlass side-by-side binary is bundled, so visual comparison to the reference is
   manual rather than pixel-identical.
 

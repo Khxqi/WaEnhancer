@@ -6,6 +6,7 @@ import android.graphics.Paint
 import android.graphics.Path
 import android.graphics.RectF
 import android.graphics.Shader
+import android.graphics.RuntimeShader
 import android.os.Build
 import androidx.annotation.RequiresApi
 import kotlin.math.min
@@ -90,7 +91,7 @@ class LayeredGlassRenderer : GlassRenderer {
 @RequiresApi(33)
 class RuntimeShaderGlassRenderer : GlassRenderer {
     override val backend = GlassBackend.RUNTIME_SHADER_SAMPLED
-    private val shader = android.graphics.RuntimeShader(SHADER)
+    private val shader = RuntimeShader(GlassShaderProgram.SAMPLED)
     private val paint = Paint(Paint.ANTI_ALIAS_FLAG).apply { this.shader = this@RuntimeShaderGlassRenderer.shader }
     private val path = Path()
     private val fallback = LayeredGlassRenderer()
@@ -103,21 +104,10 @@ class RuntimeShaderGlassRenderer : GlassRenderer {
         backdrop: Shader?
     ) {
         if (backdrop == null) return fallback.draw(canvas, bounds, shape, style)
-        val safe = style.sanitized()
         shader.setInputShader("backdrop", backdrop)
-        shader.setFloatUniform("center", bounds.centerX(), bounds.centerY())
-        shader.setFloatUniform("halfSize", bounds.width() / 2f, bounds.height() / 2f)
-        shader.setFloatUniform("blurRadius", safe.blurRadiusPx)
-        shader.setFloatUniform("refraction", safe.refractionStrengthPx)
-        shader.setFloatUniform("tintOpacity", safe.tintOpacity)
-        shader.setFloatUniform("edgeIntensity", safe.edgeIntensity)
-        shader.setFloatUniform("highlightIntensity", safe.highlightIntensity)
-        shader.setFloatUniform("depth", safe.depth)
-        shader.setFloatUniform("saturation", safe.saturation)
-        shader.setFloatUniform("progress", safe.animationProgress)
-        shader.setColorUniform("tint", safe.tintColor)
+        configureGlassShader(shader, bounds, style)
 
-        val radius = radius(bounds, shape, safe.cornerRadiusPx)
+        val radius = radius(bounds, shape, style.sanitized().cornerRadiusPx)
         path.rewind()
         path.addRoundRect(bounds, radius, radius, Path.Direction.CW)
         canvas.save()
@@ -126,9 +116,11 @@ class RuntimeShaderGlassRenderer : GlassRenderer {
         canvas.restore()
     }
 
-    private companion object {
-        // Independently authored AGSL. It samples a caller-owned Shader; it never captures the screen.
-        const val SHADER = """
+}
+
+internal object GlassShaderProgram {
+    // Independently authored AGSL. It samples a caller-owned Shader; it never captures the screen.
+    const val SAMPLED = """
             uniform shader backdrop;
             uniform float2 center;
             uniform float2 halfSize;
@@ -174,8 +166,28 @@ class RuntimeShaderGlassRenderer : GlassRenderer {
                 color.a = 1.0;
                 return color;
             }
-        """
-    }
+    """
+}
+
+@RequiresApi(33)
+internal fun configureGlassShader(
+    shader: RuntimeShader,
+    bounds: RectF,
+    style: GlassStyle,
+    animationProgress: Float = style.animationProgress
+) {
+    val safe = style.sanitized()
+    shader.setFloatUniform("center", bounds.centerX(), bounds.centerY())
+    shader.setFloatUniform("halfSize", bounds.width() / 2f, bounds.height() / 2f)
+    shader.setFloatUniform("blurRadius", safe.blurRadiusPx)
+    shader.setFloatUniform("refraction", safe.refractionStrengthPx)
+    shader.setFloatUniform("tintOpacity", safe.tintOpacity)
+    shader.setFloatUniform("edgeIntensity", safe.edgeIntensity)
+    shader.setFloatUniform("highlightIntensity", safe.highlightIntensity)
+    shader.setFloatUniform("depth", safe.depth)
+    shader.setFloatUniform("saturation", safe.saturation)
+    shader.setFloatUniform("progress", animationProgress.coerceIn(0f, 1f))
+    shader.setColorUniform("tint", safe.tintColor)
 }
 
 private fun radius(bounds: RectF, shape: GlassShape, requested: Float): Float = when (shape) {

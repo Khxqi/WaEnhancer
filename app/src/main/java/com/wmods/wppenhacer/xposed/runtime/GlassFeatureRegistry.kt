@@ -4,22 +4,16 @@ import android.app.Activity
 import android.app.Application
 import android.os.Bundle
 import android.os.Build
-import android.graphics.Canvas
-import android.graphics.Color
-import android.graphics.Paint
-import android.graphics.RectF
-import android.graphics.drawable.ColorDrawable
+import android.view.ViewGroup
 import android.view.Gravity
-import android.view.View
-import android.view.WindowManager
-import android.widget.PopupWindow
+import android.widget.FrameLayout
 import com.wmods.wppenhacer.ui.glass.GlassBackend
 import com.wmods.wppenhacer.ui.glass.GlassCapabilities
 import com.wmods.wppenhacer.ui.glass.GlassRuntimeSnapshot
 import com.wmods.wppenhacer.ui.glass.GlassRuntimeState
-import com.wmods.wppenhacer.ui.glass.GlassShape
 import com.wmods.wppenhacer.ui.glass.GlassStyle
-import com.wmods.wppenhacer.ui.glass.LayeredGlassRenderer
+import com.wmods.wppenhacer.ui.glass.LocalizedBackdropGlassView
+import com.wmods.wppenhacer.ui.glass.LocalizedGlassMetrics
 import java.util.WeakHashMap
 
 object GlassFeaturePolicy {
@@ -33,10 +27,19 @@ object GlassFeaturePolicy {
 
 object GlassFeatureRegistry {
     val PLATFORM = CapabilityId("visual.glass.platform")
+    val LOCALIZED_SAME_WINDOW = CapabilityId("visual.glass.localized-same-window")
 
     fun resolve(capabilities: CapabilityRegistry, application: Application) {
-        capabilities.resolve(PLATFORM) { GlassCapabilities.detect(application) }
-            ?.let { GlassRuntimeState.update(GlassRuntimeSnapshot(capabilities = it)) }
+        val platform = capabilities.resolve(PLATFORM) { GlassCapabilities.detect(application) }
+        platform?.let { detected ->
+            GlassRuntimeState.update(GlassRuntimeSnapshot(capabilities = detected))
+            capabilities.resolve(LOCALIZED_SAME_WINDOW) {
+                check(detected.localizedSameWindowAvailable) {
+                    "localized same-window sampling requires Android 13 RuntimeShader and RenderNode effects"
+                }
+                detected
+            }
+        }
     }
 
     fun register(
@@ -50,10 +53,10 @@ object GlassFeatureRegistry {
                 id = FeatureId("visual.experimental.liquid-glass-prototype"),
                 diagnosticName = "Liquid Glass feasibility prototype",
                 category = FeatureCategory.VISUAL,
-                requiredCapabilities = setOf(PLATFORM),
+                requiredCapabilities = setOf(LOCALIZED_SAME_WINDOW),
                 enabled = { GlassFeaturePolicy.enabled(config) },
                 installer = {
-                    val platform = requireNotNull(capabilities.get<GlassCapabilities>(PLATFORM))
+                    val platform = requireNotNull(capabilities.get<GlassCapabilities>(LOCALIZED_SAME_WINDOW))
                     val controller = GlassPrototypeController(application, platform)
                     controller.start()
                     register("glass.activity-lifecycle", object : HookHandle {
@@ -69,7 +72,7 @@ private class GlassPrototypeController(
     private val application: Application,
     private val capabilities: GlassCapabilities
 ) : Application.ActivityLifecycleCallbacks {
-    private val windows = WeakHashMap<Activity, PopupWindow>()
+    private val surfaces = WeakHashMap<Activity, LocalizedBackdropGlassView>()
 
     fun start() {
         application.registerActivityLifecycleCallbacks(this)
@@ -78,13 +81,13 @@ private class GlassPrototypeController(
 
     fun stop() {
         application.unregisterActivityLifecycleCallbacks(this)
-        windows.values.toList().forEach { runCatching { it.dismiss() } }
-        windows.clear()
+        surfaces.entries.toList().forEach { (activity, _) -> detach(activity) }
+        surfaces.clear()
         GlassRuntimeState.update(GlassRuntimeState.snapshot().copy(backend = null, attachedSurfaces = 0, failure = null))
     }
 
     override fun onActivityResumed(activity: Activity) {
-        if (windows.containsKey(activity)) return
+        if (surfaces.containsKey(activity)) return
         activity.window.decorView.post { attach(activity) }
     }
 
@@ -96,102 +99,104 @@ private class GlassPrototypeController(
     override fun onActivitySaveInstanceState(activity: Activity, state: Bundle) = Unit
 
     private fun attach(activity: Activity) {
-        if (activity.isFinishing || activity.isDestroyed || windows.containsKey(activity)) return
+        if (activity.isFinishing || activity.isDestroyed || surfaces.containsKey(activity)) return
+        if (Build.VERSION.SDK_INT < 33 || !capabilities.localizedSameWindowAvailable) {
+            recordFailure(UnsupportedOperationException("localized same-window sampled backend unavailable"))
+            return
+        }
+        val contentRoot = activity.findViewById<ViewGroup>(android.R.id.content)
+        if (contentRoot !is FrameLayout) {
+            recordFailure(IllegalStateException("activity content root is not a FrameLayout"))
+            return
+        }
         val density = activity.resources.displayMetrics.density
-        val view = PrototypeGlassView(activity)
-        val popup = PopupWindow(
-            view,
+        val style = GlassStyle(
+            blurRadiusPx = 22f * density,
+            refractionStrengthPx = 8f * density,
+            tintColor = 0xFFDDEBFF.toInt(),
+            tintOpacity = 0.16f,
+            edgeIntensity = 0.64f,
+            highlightIntensity = 0.42f,
+            depth = 0.78f
+        )
+        lateinit var view: LocalizedBackdropGlassView
+        view = LocalizedBackdropGlassView(
+            context = activity,
+            hostRoot = contentRoot,
+            style = style,
+            onMetrics = { metrics -> recordMetrics(metrics) },
+            onFailure = { throwable ->
+                activity.runOnUiThread {
+                    if (surfaces[activity] === view) detach(activity)
+                    recordFailure(throwable)
+                }
+            }
+        )
+        val params = FrameLayout.LayoutParams(
             (164 * density).toInt(),
             (58 * density).toInt(),
-            false
+            Gravity.TOP or Gravity.END
         ).apply {
-            isTouchable = false
-            isFocusable = false
-            isOutsideTouchable = false
-            isClippingEnabled = true
-            elevation = 12 * density
-            setBackgroundDrawable(ColorDrawable(Color.TRANSPARENT))
+            topMargin = (96 * density).toInt()
+            marginEnd = (18 * density).toInt()
         }
         try {
-            popup.showAtLocation(
-                activity.window.decorView,
-                Gravity.TOP or Gravity.END,
-                (18 * density).toInt(),
-                (96 * density).toInt()
-            )
-            windows[activity] = popup
-            val crossWindow = applyCrossWindowBlur(activity, view, (28 * density).toInt())
+            contentRoot.addView(view, params)
+            surfaces[activity] = view
             GlassRuntimeState.update(
-                GlassRuntimeSnapshot(
+                GlassRuntimeState.snapshot().copy(
                     capabilities = capabilities,
-                    backend = if (crossWindow) GlassBackend.CROSS_WINDOW_BLUR else GlassBackend.LAYERED_GPU_FALLBACK,
-                    attachedSurfaces = windows.size,
-                    hardwareAccelerated = view.isHardwareAccelerated
+                    backend = null,
+                    attachedSurfaces = surfaces.size,
+                    hardwareAccelerated = view.isHardwareAccelerated,
+                    failure = null
                 )
             )
         } catch (throwable: Throwable) {
-            runCatching { popup.dismiss() }
-            GlassRuntimeState.update(
-                GlassRuntimeSnapshot(
-                    capabilities = capabilities,
-                    failure = DiagnosticSanitizer.failureSummary(throwable),
-                    attachedSurfaces = windows.size
-                )
-            )
+            runCatching { contentRoot.removeView(view) }
+            recordFailure(throwable)
         }
     }
 
-    private fun applyCrossWindowBlur(activity: Activity, content: View, radius: Int): Boolean {
-        if (Build.VERSION.SDK_INT < 31 || !capabilities.crossWindowBlurAvailable) return false
-        return runCatching {
-            if (!activity.windowManager.isCrossWindowBlurEnabled) return false
-            val root = content.rootView
-            val params = root.layoutParams as WindowManager.LayoutParams
-            params.flags = params.flags or
-                WindowManager.LayoutParams.FLAG_BLUR_BEHIND or
-                WindowManager.LayoutParams.FLAG_NOT_TOUCHABLE or
-                WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE
-            params.setBlurBehindRadius(radius)
-            activity.windowManager.updateViewLayout(root, params)
-            true
-        }.getOrDefault(false)
+    private fun recordMetrics(metrics: LocalizedGlassMetrics) {
+        val previous = GlassRuntimeState.snapshot()
+        GlassRuntimeState.update(
+            previous.copy(
+                capabilities = capabilities,
+                backend = GlassBackend.LOCALIZED_SAME_WINDOW_SAMPLED,
+                attachedSurfaces = surfaces.size,
+                hardwareAccelerated = metrics.hardwareAccelerated,
+                capturedFrames = metrics.capturedFrames,
+                lastCaptureMs = metrics.lastCaptureMs,
+                worstCaptureMs = metrics.worstCaptureMs,
+                approximateRenderNodeBytes = metrics.approximateRenderNodeBytes,
+                failure = null
+            )
+        )
+    }
+
+    private fun recordFailure(throwable: Throwable) {
+        val previous = GlassRuntimeState.snapshot()
+        GlassRuntimeState.update(
+            previous.copy(
+                capabilities = capabilities,
+                backend = null,
+                attachedSurfaces = surfaces.size,
+                failure = DiagnosticSanitizer.failureSummary(throwable)
+            )
+        )
     }
 
     private fun detach(activity: Activity) {
-        windows.remove(activity)?.let { runCatching { it.dismiss() } }
+        surfaces.remove(activity)?.let { surface ->
+            runCatching { (surface.parent as? ViewGroup)?.removeView(surface) }
+        }
         val previous = GlassRuntimeState.snapshot()
-        GlassRuntimeState.update(previous.copy(attachedSurfaces = windows.size))
-    }
-}
-
-private class PrototypeGlassView(context: android.content.Context) : View(context) {
-    private val renderer = LayeredGlassRenderer()
-    private val bounds = RectF()
-    private val label = Paint(Paint.ANTI_ALIAS_FLAG).apply {
-        color = Color.WHITE
-        textAlign = Paint.Align.CENTER
-        textSize = 12f * resources.displayMetrics.scaledDensity
-        isFakeBoldText = true
-        letterSpacing = 0.08f
-        setShadowLayer(2f, 0f, 1f, 0x88000000.toInt())
-    }
-    private val style = GlassStyle(
-        tintColor = 0xFFDDEBFF.toInt(),
-        tintOpacity = 0.16f,
-        edgeIntensity = 0.64f,
-        highlightIntensity = 0.42f,
-        depth = 0.78f
-    )
-
-    init {
-        isClickable = false
-        isFocusable = false
-        importantForAccessibility = IMPORTANT_FOR_ACCESSIBILITY_NO_HIDE_DESCENDANTS
-    }
-
-    override fun onDraw(canvas: Canvas) {
-        bounds.set(1f, 1f, width - 1f, height - 1f)
-        renderer.draw(canvas, bounds, GlassShape.Capsule, style)
-        canvas.drawText("GLASS PROTOTYPE", bounds.centerX(), bounds.centerY() + label.textSize * .35f, label)
+        GlassRuntimeState.update(
+            previous.copy(
+                backend = if (surfaces.isEmpty()) null else previous.backend,
+                attachedSurfaces = surfaces.size
+            )
+        )
     }
 }

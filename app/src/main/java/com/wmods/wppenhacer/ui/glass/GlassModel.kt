@@ -7,7 +7,8 @@ import android.graphics.Shader
 
 enum class GlassBackend {
     RUNTIME_SHADER_SAMPLED,
-    CROSS_WINDOW_BLUR,
+    LOCALIZED_SAME_WINDOW_SAMPLED,
+    CROSS_WINDOW_BLUR_REJECTED,
     LAYERED_GPU_FALLBACK
 }
 

@@ -36,7 +36,7 @@ object RuntimeDiagnostics {
         val capabilityStates = capabilities.associateBy { it.id }
 
         return JSONObject().apply {
-            put("schemaVersion", 3)
+            put("schemaVersion", 4)
             put("moduleVersion", session?.moduleVersion ?: BuildConfig.VERSION_NAME)
             put("whatsAppVersionName", session?.whatsAppVersionName ?: JSONObject.NULL)
             put("whatsAppVersionCode", session?.whatsAppVersionCode ?: JSONObject.NULL)
@@ -55,12 +55,20 @@ object RuntimeDiagnostics {
                 put("capabilities", JSONObject().apply {
                     put("runtimeShader", glass.capabilities?.runtimeShaderAvailable ?: false)
                     put("renderEffect", glass.capabilities?.renderEffectAvailable ?: false)
+                    put("localizedSameWindow", glass.capabilities?.localizedSameWindowAvailable ?: false)
                     put("crossWindowBlur", glass.capabilities?.crossWindowBlurAvailable ?: false)
                     put("highEndGraphics", glass.capabilities?.highEndGraphics ?: false)
                 })
                 put("backend", glass.backend?.name ?: JSONObject.NULL)
                 put("attachedSurfaces", glass.attachedSurfaces)
                 put("hardwareAccelerated", glass.hardwareAccelerated ?: JSONObject.NULL)
+                put("capturedFrames", glass.capturedFrames)
+                put("lastCaptureMs", glass.lastCaptureMs ?: JSONObject.NULL)
+                put("worstCaptureMs", glass.worstCaptureMs ?: JSONObject.NULL)
+                put("approximateRenderNodeBytes", glass.approximateRenderNodeBytes ?: JSONObject.NULL)
+                put("rejectedBackends", JSONArray().apply {
+                    glass.rejectedBackends.sortedBy { it.name }.forEach { put(it.name) }
+                })
                 put("failure", glass.failure?.let(DiagnosticSanitizer::sanitize) ?: JSONObject.NULL)
             })
             put("stages", JSONArray().apply {
