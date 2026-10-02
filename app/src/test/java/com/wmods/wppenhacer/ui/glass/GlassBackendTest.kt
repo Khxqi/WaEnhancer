@@ -17,4 +17,17 @@ class GlassBackendTest {
         assertTrue(snapshot.rejectedBackends.contains(GlassBackend.CROSS_WINDOW_BLUR_REJECTED))
         assertEquals(null, snapshot.backend)
     }
+
+    @Test
+    fun runtimeVerificationRequiresAttachAndRenderedFrame() {
+        assertFalse(GlassRuntimeSnapshot().runtimeVerified)
+        assertFalse(GlassRuntimeSnapshot(successfulAttaches = 1).runtimeVerified)
+        assertFalse(GlassRuntimeSnapshot(firstFrameRendered = true).runtimeVerified)
+        assertTrue(
+            GlassRuntimeSnapshot(
+                successfulAttaches = 1,
+                firstFrameRendered = true
+            ).runtimeVerified
+        )
+    }
 }

@@ -177,6 +177,13 @@ class FeatureRegistry(private val capabilities: CapabilityRegistry) {
 
     fun snapshot(): List<FeatureRecord> = synchronized(records) { records.values.toList() }
 
+    fun markRuntimeVerified(id: FeatureId): Boolean = synchronized(records) {
+        val current = records[id] ?: return@synchronized false
+        if (current.status != FeatureStatus.READY) return@synchronized false
+        records[id] = current.copy(runtimeVerified = true)
+        true
+    }
+
     private fun record(
         spec: FeatureSpec,
         enabled: Boolean,

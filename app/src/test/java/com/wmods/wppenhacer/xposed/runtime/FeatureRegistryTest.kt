@@ -87,6 +87,31 @@ class FeatureRegistryTest {
     }
 
     @Test
+    fun runtimeVerificationCanOnlyMarkReadyFeature() {
+        val registry = FeatureRegistry(CapabilityRegistry())
+        registry.register(spec("test.ready") {})
+        registry.register(
+            FeatureSpec(
+                id = FeatureId("test.disabled"),
+                diagnosticName = "test.disabled",
+                category = FeatureCategory.VISUAL,
+                requiredCapabilities = emptySet(),
+                enabled = { false },
+                installer = {}
+            )
+        )
+        registry.installAll()
+
+        assertTrue(registry.markRuntimeVerified(FeatureId("test.ready")))
+        assertFalse(registry.markRuntimeVerified(FeatureId("test.disabled")))
+        assertFalse(registry.markRuntimeVerified(FeatureId("test.missing")))
+
+        val records = registry.snapshot().associateBy { it.id.value }
+        assertTrue(records.getValue("test.ready").runtimeVerified)
+        assertFalse(records.getValue("test.disabled").runtimeVerified)
+    }
+
+    @Test
     fun disabledFeatureIsNotInstalled() {
         val registry = FeatureRegistry(CapabilityRegistry())
         var installed = false

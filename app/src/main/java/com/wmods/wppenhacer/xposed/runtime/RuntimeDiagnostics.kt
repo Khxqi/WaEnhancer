@@ -38,7 +38,7 @@ object RuntimeDiagnostics {
         val capabilityStates = capabilities.associateBy { it.id }
 
         return JSONObject().apply {
-            put("schemaVersion", 5)
+            put("schemaVersion", 6)
             put("moduleVersion", session?.moduleVersion ?: BuildConfig.VERSION_NAME)
             put("whatsAppVersionName", session?.whatsAppVersionName ?: JSONObject.NULL)
             put("whatsAppVersionCode", session?.whatsAppVersionCode ?: JSONObject.NULL)
@@ -84,6 +84,39 @@ object RuntimeDiagnostics {
                     put("highEndGraphics", glass.capabilities?.highEndGraphics ?: false)
                 })
                 put("backend", glass.backend?.name ?: JSONObject.NULL)
+                put("runtimeVerified", glass.runtimeVerified)
+                put("lifecycleCallbackRegistered", glass.lifecycleCallbackRegistered)
+                put(
+                    "lastActivityClass",
+                    glass.lastActivityClass?.let(DiagnosticSanitizer::sanitize) ?: JSONObject.NULL
+                )
+                put(
+                    "lastLifecycleEvent",
+                    glass.lastLifecycleEvent?.let(DiagnosticSanitizer::sanitize) ?: JSONObject.NULL
+                )
+                put("attachAttempts", glass.attachAttempts)
+                put("successfulAttaches", glass.successfulAttaches)
+                put(
+                    "contentRootClass",
+                    glass.contentRootClass?.let(DiagnosticSanitizer::sanitize) ?: JSONObject.NULL
+                )
+                put("contentRootIsViewGroup", glass.contentRootIsViewGroup ?: JSONObject.NULL)
+                put("contentRootIsFrameLayout", glass.contentRootIsFrameLayout ?: JSONObject.NULL)
+                put("contentRootWidth", glass.contentRootWidth ?: JSONObject.NULL)
+                put("contentRootHeight", glass.contentRootHeight ?: JSONObject.NULL)
+                put("surfaceWidth", glass.surfaceWidth ?: JSONObject.NULL)
+                put("surfaceHeight", glass.surfaceHeight ?: JSONObject.NULL)
+                put("firstPreDrawObserved", glass.firstPreDrawObserved)
+                put("firstBackdropRecordingStarted", glass.firstBackdropRecordingStarted)
+                put("firstFrameRendered", glass.firstFrameRendered)
+                put(
+                    "lastRenderStage",
+                    glass.lastRenderStage?.let(DiagnosticSanitizer::sanitize) ?: JSONObject.NULL
+                )
+                put(
+                    "lastAttachFailure",
+                    glass.lastAttachFailure?.let(DiagnosticSanitizer::sanitize) ?: JSONObject.NULL
+                )
                 put("attachedSurfaces", glass.attachedSurfaces)
                 put("hardwareAccelerated", glass.hardwareAccelerated ?: JSONObject.NULL)
                 put("capturedFrames", glass.capturedFrames)

@@ -31,6 +31,23 @@ data class GlassCapabilities(
 data class GlassRuntimeSnapshot(
     val capabilities: GlassCapabilities? = null,
     val backend: GlassBackend? = null,
+    val lifecycleCallbackRegistered: Boolean = false,
+    val lastActivityClass: String? = null,
+    val lastLifecycleEvent: String? = null,
+    val attachAttempts: Long = 0,
+    val successfulAttaches: Long = 0,
+    val contentRootClass: String? = null,
+    val contentRootIsViewGroup: Boolean? = null,
+    val contentRootIsFrameLayout: Boolean? = null,
+    val contentRootWidth: Int? = null,
+    val contentRootHeight: Int? = null,
+    val surfaceWidth: Int? = null,
+    val surfaceHeight: Int? = null,
+    val firstPreDrawObserved: Boolean = false,
+    val firstBackdropRecordingStarted: Boolean = false,
+    val firstFrameRendered: Boolean = false,
+    val lastRenderStage: String? = null,
+    val lastAttachFailure: String? = null,
     val attachedSurfaces: Int = 0,
     val hardwareAccelerated: Boolean? = null,
     val capturedFrames: Long = 0,
@@ -39,13 +56,22 @@ data class GlassRuntimeSnapshot(
     val approximateRenderNodeBytes: Long? = null,
     val rejectedBackends: Set<GlassBackend> = setOf(GlassBackend.CROSS_WINDOW_BLUR_REJECTED),
     val failure: String? = null
-)
+) {
+    val runtimeVerified: Boolean
+        get() = successfulAttaches > 0 && firstFrameRendered
+}
 
 object GlassRuntimeState {
     @Volatile private var snapshot = GlassRuntimeSnapshot()
 
+    @Synchronized
     fun update(value: GlassRuntimeSnapshot) {
         snapshot = value
+    }
+
+    @Synchronized
+    fun update(transform: (GlassRuntimeSnapshot) -> GlassRuntimeSnapshot) {
+        snapshot = transform(snapshot)
     }
 
     fun snapshot(): GlassRuntimeSnapshot = snapshot
