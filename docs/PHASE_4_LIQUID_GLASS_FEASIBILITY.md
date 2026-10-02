@@ -171,7 +171,7 @@ requires configuration transport to succeed and all three recovery gates to perm
 
 ## Diagnostics and performance instrumentation
 
-Runtime diagnostics schema 4 adds `glass` with the experimental flag, RuntimeShader/RenderEffect/
+Runtime diagnostics schema 6 includes `glass` with the experimental flag, RuntimeShader/RenderEffect/
 localized/cross-window/high-end capability flags, active backend, rejected backend list, attached
 surface count, hardware acceleration state, captured frame count, last/worst recording duration,
 approximate RenderNode memory, and a sanitized failure. It does not include WhatsApp content or
@@ -323,3 +323,35 @@ show:
 
 Only after those checks pass should the OnePlus 15 localized RenderNode/AGSL visual and performance
 acceptance procedure above resume.
+
+## Post-startup glass observability pass
+
+The `C2FED88A` compatibility build reached `READY` for both the localized platform capability and
+`visual.experimental.liquid-glass-prototype`, with no failed features or capabilities. Its exported
+diagnostics still showed no backend, surface, or captured frame. That file was a bootstrap snapshot:
+`RuntimeBootstrap` published immediately after `FeatureRegistry.installAll()`, before a WhatsApp
+activity necessarily resumed. Later `GlassRuntimeState` changes were held only in the WhatsApp
+process and were not republished to the companion.
+
+The renderer and attachment policy are unchanged. A bounded live publisher now coalesces meaningful
+glass state changes with a 500 ms minimum interval. It republishes after activity/attachment state,
+successful addView, structural attach failure, the first pre-draw/record/capture/render milestones,
+render failure, and detach. It is not called on every frame. Existing 60-frame in-memory metrics do
+not trigger repeated provider/file writes.
+
+Schema 6 adds:
+
+- lifecycle callback registration and latest sanitized activity/lifecycle event;
+- attach attempts, successful attaches, and active surface count;
+- actual `android.R.id.content` class, ViewGroup/FrameLayout classification, and dimensions;
+- candidate surface dimensions;
+- first pre-draw, first recording, and first successful RenderNode draw state;
+- last render stage and sanitized attach/render failure;
+- a `glass.runtimeVerified` value that becomes true only after at least one successful surface
+  attach and one successful localized RenderNode draw.
+
+At the same milestone, the existing feature record is marked `runtimeVerified=true`; installer
+`READY` alone still leaves it false. If `android.R.id.content` is not a `FrameLayout`, diagnostics
+record the real class and both structural booleans and the controller leaves stock WhatsApp intact.
+No alternative root traversal, PopupWindow, cross-window blur, privacy hook, or renderer fallback
+was introduced by this pass.
