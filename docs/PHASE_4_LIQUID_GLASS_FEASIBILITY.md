@@ -257,3 +257,69 @@ Target: OnePlus 15, Android 16, OxygenOS 16, arm64, KernelSU Next, LSPosed, offi
 
 Phase 5 must not start until CI succeeds, the extracted APK is verified, and the user accepts the
 visual stability and measured performance on the target device.
+
+## WhatsApp 2.26.38.73 compatibility pass
+
+The localized renderer acceptance test was paused after the target updated to official WhatsApp
+`2.26.38.73` (`versionCode 263807322`). LSPosed load-package callbacks and all three resource
+injection groups still ran, but WaEnhancer did not become functionally active. This was not a glass
+backend failure.
+
+The exact stop was the supported-version gate in `RuntimeBootstrap`. The
+`supported_versions_wpp` metadata ended at `2.26.37.xx`. After DexKit and resolver-cache setup,
+the bootstrap returned before message-component initialization, legacy core initialization,
+privacy capability resolution, or `FeatureRegistry.installAll()`. Because the glass feature had
+only been registered at that point, the return also prevented its public-framework lifecycle
+installer from running. The similarly named check in `HomeFragment` only controls companion UI;
+it was not the runtime stop.
+
+The observed first-launch string searches (`mystatus`, `online`, `groups`, `messagedeleted`,
+`selectcalltype`, `lastseensun%s`, and `updates`) show that the persistent cache missed and rebuilt
+after the host update. `UnobfuscatorCache` already compared WhatsApp `longVersionCode`, so cached
+2.26.37 reflection targets were not reused for 2.26.38. Later launches omitted those searches
+because the rebuilt string entries were cache hits, not because bootstrap never entered.
+
+The compatibility change keeps the version safeguard instead of bypassing it:
+
+- `2.26.38.xx` is now official-WhatsApp supported metadata; Business metadata is unchanged.
+- `WhatsAppVersionPolicy` produces an explicit `FULL_RUNTIME`, `FULL_RUNTIME_BYPASS`, or
+  `FRAMEWORK_ONLY` decision.
+- An unknown/future version defaults to `FRAMEWORK_ONLY`. DexKit, legacy core, and obfuscated
+  privacy features are withheld, while already registered Android-framework-only features may be
+  evaluated under their own flags and capabilities. Stock behavior is therefore the default for
+  unresolved host internals.
+- The existing explicit user bypass remains distinct in diagnostics and retains its historical
+  behavior; bypass is never reported as metadata acceptance.
+- Resolver cache identity now includes both host version code and version name. Diagnostics report
+  `HIT` or `INVALIDATED`, a bounded reason, and the previous/current host versions. A host update
+  clears hook and string caches before any resolver target can be reused.
+- Runtime logs now distinguish module load, resource injection, bootstrap entry, configuration,
+  version acceptance/rejection, resolver initialization, cache state, capability resolution,
+  feature-registry start, glass registration, completion, and fail-closed startup.
+
+No WhatsApp class or signature was guessed or changed in this pass. The Phase 3 named privacy
+capabilities still validate their resolved method/class shape and fail locally. Complex legacy
+privacy preflights and the bundled message-component/legacy-core capabilities remain dependent on
+the existing `Unobfuscator`; their actual 2.26.38 targets cannot be truthfully verified by JVM
+tests or CI without the installed host. A failed privacy capability does not prevent the
+`visual.experimental.liquid-glass-prototype` feature from installing when its independent Android
+platform capability and recovery/configuration policy permit it.
+
+Compatibility is not considered device-validated by this metadata and startup fix. Before
+resuming the visual acceptance matrix, install the resulting APK and verify exported diagnostics
+show:
+
+1. `whatsAppVersionName=2.26.38.73` and `whatsAppVersionCode=263807322`.
+2. `hostCompatibility.metadataAccepted=true` and `hostCompatibility.mode=FULL_RUNTIME`.
+3. `resolverCache.disposition=INVALIDATED` on the first cold launch after installation (or `HIT`
+   after that rebuild), followed by `HIT` on the next cold launch.
+4. `RESOLVER_INITIALIZATION`, `CAPABILITY_RESOLUTION`, and `FEATURE_INSTALLATION` reached a recorded
+   terminal state instead of disappearing after resource injection.
+5. Failed resolver capabilities, if any, appear individually; WhatsApp remains open and unrelated
+   features continue.
+6. `visual.experimental.liquid-glass-prototype` is registered independently. With its toggle on
+   and all recovery switches off, it can reach `READY` even if an unrelated privacy capability is
+   `FAILED` or `UNSUPPORTED`.
+
+Only after those checks pass should the OnePlus 15 localized RenderNode/AGSL visual and performance
+acceptance procedure above resume.
