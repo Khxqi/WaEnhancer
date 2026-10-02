@@ -43,6 +43,12 @@
             app:key="runtime_enable_liquid_glass_prototype"
             app:summary="@string/runtime_glass_prototype_summary"
             app:title="@string/runtime_glass_prototype_title" />
+
+        <rikka.material.preference.MaterialSwitchPreference
+            app:defaultValue="false"
+            app:key="runtime_enable_ios_home_redesign"
+            app:summary="@string/runtime_ios_home_redesign_summary"
+            app:title="@string/runtime_ios_home_redesign_title" />
     </PreferenceCategory>
 
     <PreferenceCategory

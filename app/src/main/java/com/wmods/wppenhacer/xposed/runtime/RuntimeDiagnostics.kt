@@ -38,7 +38,7 @@ object RuntimeDiagnostics {
         val capabilityStates = capabilities.associateBy { it.id }
 
         return JSONObject().apply {
-            put("schemaVersion", 8)
+            put("schemaVersion", 9)
             put("moduleVersion", session?.moduleVersion ?: BuildConfig.VERSION_NAME)
             put("whatsAppVersionName", session?.whatsAppVersionName ?: JSONObject.NULL)
             put("whatsAppVersionCode", session?.whatsAppVersionCode ?: JSONObject.NULL)
@@ -49,6 +49,7 @@ object RuntimeDiagnostics {
             put("safeMode", config?.safeMode ?: true)
             put("disableAllHooks", config?.disableAllHooks ?: true)
             put("disableVisualModifications", config?.disableVisualModifications ?: true)
+            put("iosHomeRedesignEnabled", config?.enableIosHomeRedesign ?: false)
             put("configurationTransport", config?.transportStatus?.name ?: "UNAVAILABLE")
             put("configurationFailure", config?.failureSummary?.let(DiagnosticSanitizer::sanitize) ?: JSONObject.NULL)
             put("hostCompatibility", JSONObject().apply {
@@ -87,7 +88,7 @@ object RuntimeDiagnostics {
                 put("runtimeVerified", glass.runtimeVerified)
                 put("runtimeVerifiedMeaning", "DRAW_PATH_ONLY")
                 put("drawPathVerified", glass.drawPathVerified)
-                put("visualVerificationStatus", "PENDING_DEVICE_REPORT")
+                put("visualVerificationStatus", "ACCEPTED_ONEPLUS_15_PHASE4")
                 put("visualProbeMode", glass.visualProbeMode?.name ?: JSONObject.NULL)
                 put("visualProbeCycleCount", glass.visualProbeCycleCount)
                 put("lifecycleCallbackRegistered", glass.lifecycleCallbackRegistered)
@@ -166,6 +167,43 @@ object RuntimeDiagnostics {
                     glass.rejectedBackends.sortedBy { it.name }.forEach { put(it.name) }
                 })
                 put("failure", glass.failure?.let(DiagnosticSanitizer::sanitize) ?: JSONObject.NULL)
+            })
+            val home = HomeRuntimeState.snapshot()
+            put("phase5aHome", JSONObject().apply {
+                put("homeRedesignEnabled", home.enabled)
+                put("homeRedesignStatus", home.status.name)
+                put("lifecycleCallbackRegistered", home.lifecycleCallbackRegistered)
+                put("homeActivityDetected", home.homeActivityDetected)
+                put(
+                    "lastActivityClass",
+                    home.lastActivityClass?.let(DiagnosticSanitizer::sanitize) ?: JSONObject.NULL
+                )
+                put("discoveryAttempts", home.discoveryAttempts)
+                put("stockBottomNavDetected", home.stockBottomNavDetected)
+                put(
+                    "stockBottomNavClass",
+                    home.stockBottomNavClass?.let(DiagnosticSanitizer::sanitize) ?: JSONObject.NULL
+                )
+                put("destinationCount", home.destinationCount)
+                put("stockNavMovedIntoSurface", home.stockNavMovedIntoSurface)
+                put("floatingBottomBarAttached", home.floatingBottomBarAttached)
+                put("activeDestinationIndex", home.activeDestinationIndex ?: JSONObject.NULL)
+                put("badgeCountDetected", home.badgeCountDetected)
+                put("glassSurfaceCount", home.glassSurfaceCount)
+                put("hierarchyCaptureCount", home.hierarchyCaptureCount)
+                put("lastCaptureMs", home.lastCaptureMs ?: JSONObject.NULL)
+                put("rollingCaptureMs", home.rollingCaptureMs ?: JSONObject.NULL)
+                put("worstCaptureMs", home.worstCaptureMs ?: JSONObject.NULL)
+                put(
+                    "approximateRenderNodeBytes",
+                    home.approximateRenderNodeBytes ?: JSONObject.NULL
+                )
+                put("contentPaddingApplied", home.contentPaddingApplied)
+                put("toolbarStyled", home.toolbarStyled)
+                put("searchSurfaceStyled", home.searchSurfaceStyled)
+                put("runtimeVerified", home.runtimeVerified)
+                put("runtimeVerifiedMeaning", "DRAW_PATH_ONLY")
+                put("homeFailure", home.failure?.let(DiagnosticSanitizer::sanitize) ?: JSONObject.NULL)
             })
             put("stages", JSONArray().apply {
                 RuntimeState.stageSnapshot().forEach { record ->

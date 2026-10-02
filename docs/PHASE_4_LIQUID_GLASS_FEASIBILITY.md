@@ -2,9 +2,12 @@
 
 This document records only the Phase 4 implementation. It is a rendering feasibility prototype,
 not a WhatsApp redesign and not a declaration that the renderer is ready for Phase 5. Phase 3
-privacy behavior is unchanged. The companion Glass Lab passed its initial OnePlus 15 test with
+privacy behavior is unchanged. The companion Glass Lab passed its OnePlus 15 test with
 `RUNTIME_SHADER_SAMPLED`, including visible sampled refraction. The first WhatsApp compositor-blur
-prototype failed its visual gate; the replacement described below still requires device validation.
+prototype failed its visual gate. The replacement localized RenderNode + RuntimeShader path later
+passed the five-stage OnePlus 15 visual probe after the shader uniforms were initialized before the
+immutable RenderEffect was created. That subsequent acceptance is recorded here without rewriting
+the earlier investigation history below.
 
 ## Baseline and scope
 
@@ -470,3 +473,18 @@ This correction does not alter the sampling bounds, window-coordinate mapping, D
 ownership, recovery gates, privacy registry, official-package scope, or any other probe mode. Phase
 4 remains unaccepted until `CURRENT_GLASS_EXAGGERATED` visibly shows sampled WhatsApp content with
 clear blur/refraction, blue tint, and highlight on the target device.
+
+## Subsequent device acceptance and Phase 5 handoff
+
+The next OnePlus 15 / OxygenOS 16 device cycle passed all five modes, including
+`CURRENT_GLASS_EXAGGERATED` with sampled WhatsApp content, localized blur, refraction, translucent
+blue tint, and edge/highlight. This satisfied the Phase 4 visual feasibility gate for beginning the
+first bounded Home redesign. It did not validate a production navigation layout or its scrolling
+cost.
+
+For Phase 5A, `LocalizedBackdropGlassView` keeps the diagnostic implementation but defaults
+`diagnosticProbeEnabled` to false. Production surfaces therefore install their configured neutral
+glass effect directly and do not run the three-second mode cycle or allocate diagnostic shader
+effects unless the probe is explicitly requested. Runtime diagnostics report
+`visualVerificationStatus="ACCEPTED_ONEPLUS_15_PHASE4"`; Phase 5A has a separate, still-pending
+device acceptance gate.

@@ -571,4 +571,6 @@
     <string name="runtime_glass_lab_summary">Controlled native GPU renderer lab with sampled dynamic content and frame metrics.</string>
     <string name="runtime_glass_prototype_title">Enable Liquid Glass prototype</string>
     <string name="runtime_glass_prototype_summary">Experimental, off by default. Adds one non-touchable test surface to official WhatsApp after restart.</string>
+    <string name="runtime_ios_home_redesign_title">Enable iOS Home redesign</string>
+    <string name="runtime_ios_home_redesign_summary">Phase 5A development preview. Restyles only the WhatsApp Home screen and uses the real host navigation inside one localized Liquid Glass surface. Restart WhatsApp after changing.</string>
 </resources>
