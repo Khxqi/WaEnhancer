@@ -72,6 +72,7 @@ class LocalizedBackdropGlassView(
     context: Context,
     private val hostRoot: ViewGroup,
     private val style: GlassStyle,
+    private val diagnosticProbeEnabled: Boolean = false,
     private val onMetrics: (LocalizedGlassMetrics) -> Unit,
     private val onGeometry: (LocalizedGlassGeometry) -> Unit,
     private val onDrawMetrics: (LocalizedGlassDrawMetrics) -> Unit,
@@ -86,17 +87,25 @@ class LocalizedBackdropGlassView(
     private var currentGlassShader: RuntimeShader? = null
     private var currentGlassEffect: RenderEffect? = null
     private val currentGlassConfiguration = GlassEffectConfigurationState()
-    private val builtInBlurEffect = RenderEffect.createBlurEffect(
-        28f * density,
-        28f * density,
-        Shader.TileMode.CLAMP
-    )
-    private val runtimeSolidShader = RuntimeShader(GlassProbeShaderProgram.SOLID)
-    private val runtimeSolidEffect =
-        RenderEffect.createRuntimeShaderEffect(runtimeSolidShader, "backdrop")
-    private val runtimeInputTintShader = RuntimeShader(GlassProbeShaderProgram.INPUT_TINT)
-    private val runtimeInputTintEffect =
-        RenderEffect.createRuntimeShaderEffect(runtimeInputTintShader, "backdrop")
+    private val builtInBlurEffect by lazy {
+        RenderEffect.createBlurEffect(
+            28f * density,
+            28f * density,
+            Shader.TileMode.CLAMP
+        )
+    }
+    private val runtimeSolidEffect by lazy {
+        RenderEffect.createRuntimeShaderEffect(
+            RuntimeShader(GlassProbeShaderProgram.SOLID),
+            "backdrop"
+        )
+    }
+    private val runtimeInputTintEffect by lazy {
+        RenderEffect.createRuntimeShaderEffect(
+            RuntimeShader(GlassProbeShaderProgram.INPUT_TINT),
+            "backdrop"
+        )
+    }
     private val probeCycle = GlassVisualProbeCycle()
     private val probeAdvance = object : Runnable {
         override fun run() {
@@ -146,9 +155,11 @@ class LocalizedBackdropGlassView(
     override fun onAttachedToWindow() {
         super.onAttachedToWindow()
         hostRoot.viewTreeObserver.addOnPreDrawListener(this)
-        applyProbeMode(probeCycle.start())
         removeCallbacks(probeAdvance)
-        postDelayed(probeAdvance, PROBE_MODE_DURATION_MS)
+        if (diagnosticProbeEnabled) {
+            applyProbeMode(probeCycle.start())
+            postDelayed(probeAdvance, PROBE_MODE_DURATION_MS)
+        }
     }
 
     override fun onDetachedFromWindow() {
@@ -206,7 +217,7 @@ class LocalizedBackdropGlassView(
             val saveCount = canvas.save()
             try {
                 canvas.clipPath(clipPath)
-                val diagnosticOffset = if (
+                val diagnosticOffset = if (diagnosticProbeEnabled &&
                     probeCycle.currentMode == GlassVisualProbeMode.RAW_REPLAY_SHIFTED
                 ) rawReplayOffset else 0f
                 canvas.translate(
@@ -223,12 +234,14 @@ class LocalizedBackdropGlassView(
             } finally {
                 canvas.restoreToCount(saveCount)
             }
-            canvas.drawText(
-                probeCycle.currentMode.name,
-                surfaceBounds.centerX(),
-                surfaceBounds.centerY() + labelPaint.textSize * 0.35f,
-                labelPaint
-            )
+            if (diagnosticProbeEnabled) {
+                canvas.drawText(
+                    probeCycle.currentMode.name,
+                    surfaceBounds.centerX(),
+                    surfaceBounds.centerY() + labelPaint.textSize * 0.35f,
+                    labelPaint
+                )
+            }
             if (!firstRenderedReported) {
                 firstRenderedReported = true
                 publishDrawMetrics()
@@ -342,17 +355,21 @@ class LocalizedBackdropGlassView(
     }
 
     private fun ensureCurrentGlassEffect() {
-        val exaggeratedStyle = style.copy(
-            blurRadiusPx = 32f * density,
-            refractionStrengthPx = 12f * density,
-            tintColor = 0xFF42A5FF.toInt(),
-            tintOpacity = 0.48f,
-            edgeIntensity = 1f,
-            highlightIntensity = 0.92f,
-            depth = 1f,
-            saturation = 1.28f,
-            animationProgress = FROZEN_GLASS_PROGRESS
-        ).sanitized()
+        val configuredStyle = if (diagnosticProbeEnabled) {
+            style.copy(
+                blurRadiusPx = 32f * density,
+                refractionStrengthPx = 12f * density,
+                tintColor = 0xFF42A5FF.toInt(),
+                tintOpacity = 0.48f,
+                edgeIntensity = 1f,
+                highlightIntensity = 0.92f,
+                depth = 1f,
+                saturation = 1.28f,
+                animationProgress = FROZEN_GLASS_PROGRESS
+            )
+        } else {
+            style.copy(animationProgress = FROZEN_GLASS_PROGRESS)
+        }.sanitized()
         val key = GlassEffectConfigurationKey(
             bounds = GlassEffectBounds(
                 left = shaderBounds.left.toInt(),
@@ -360,7 +377,7 @@ class LocalizedBackdropGlassView(
                 right = shaderBounds.right.toInt(),
                 bottom = shaderBounds.bottom.toInt()
             ),
-            style = exaggeratedStyle
+            style = configuredStyle
         )
         if (!currentGlassConfiguration.needsRebuild(key)) return
 
@@ -370,7 +387,7 @@ class LocalizedBackdropGlassView(
         configureGlassShader(
             configuredShader,
             shaderBounds,
-            exaggeratedStyle,
+            configuredStyle,
             animationProgress = FROZEN_GLASS_PROGRESS
         )
         val configuredEffect =
@@ -379,7 +396,9 @@ class LocalizedBackdropGlassView(
         currentGlassShader = configuredShader
         currentGlassEffect = configuredEffect
         currentGlassConfiguration.markConfigured(key)
-        if (probeCycle.currentMode == GlassVisualProbeMode.CURRENT_GLASS_EXAGGERATED) {
+        if (!diagnosticProbeEnabled ||
+            probeCycle.currentMode == GlassVisualProbeMode.CURRENT_GLASS_EXAGGERATED
+        ) {
             renderNode.setRenderEffect(configuredEffect)
         }
     }

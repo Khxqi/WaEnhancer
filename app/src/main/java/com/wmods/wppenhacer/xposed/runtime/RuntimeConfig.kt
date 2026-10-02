@@ -14,6 +14,7 @@ object RuntimeConfigKeys {
     const val SAFE_MODE = "runtime_safe_mode"
     const val ENABLE_LOGS = "enablelogs"
     const val ENABLE_LIQUID_GLASS_PROTOTYPE = "runtime_enable_liquid_glass_prototype"
+    const val ENABLE_IOS_HOME_REDESIGN = "runtime_enable_ios_home_redesign"
 }
 
 enum class ConfigTransportStatus {
@@ -29,6 +30,7 @@ data class RuntimeConfigSnapshot(
     val enableLogs: Boolean,
     val transportStatus: ConfigTransportStatus,
     val enableLiquidGlassPrototype: Boolean = false,
+    val enableIosHomeRedesign: Boolean = false,
     val failureSummary: String? = null
 )
 
@@ -94,6 +96,10 @@ object RuntimeConfigReader {
             enableLiquidGlassPrototype = preferences.getBoolean(
                 RuntimeConfigKeys.ENABLE_LIQUID_GLASS_PROTOTYPE,
                 false
+            ),
+            enableIosHomeRedesign = preferences.getBoolean(
+                RuntimeConfigKeys.ENABLE_IOS_HOME_REDESIGN,
+                false
             )
         )
     }
@@ -106,6 +112,7 @@ object RuntimeConfigReader {
             enableLogs = false,
             transportStatus = ConfigTransportStatus.FAILED_CLOSED,
             enableLiquidGlassPrototype = false,
+            enableIosHomeRedesign = false,
             failureSummary = throwable.javaClass.simpleName
         )
     }

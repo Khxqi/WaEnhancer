@@ -26,6 +26,7 @@ import java.util.WeakHashMap
 object GlassFeaturePolicy {
     fun enabled(config: RuntimeConfigSnapshot): Boolean =
         config.enableLiquidGlassPrototype &&
+            !config.enableIosHomeRedesign &&
             !config.disableAllHooks &&
             !config.disableVisualModifications &&
             !config.safeMode &&

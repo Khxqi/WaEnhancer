@@ -130,6 +130,8 @@ object RuntimeBootstrap {
             GlassFeatureRegistry.resolve(capabilities, application)
             GlassFeatureRegistry.register(registry, capabilities, application, config)
             RuntimeTrace.event("glass-feature-registered")
+            HomeFeatureRegistry.register(registry, capabilities, application, config)
+            RuntimeTrace.event("home-redesign-feature-registered")
             var privacyConfig = PrivacyConfigReader.read(
                 configAccess.legacyPreferences,
                 config

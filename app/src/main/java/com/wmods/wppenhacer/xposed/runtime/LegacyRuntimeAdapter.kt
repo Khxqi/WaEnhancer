@@ -129,7 +129,8 @@ object LegacyRuntimeAdapter {
                     requiredCapabilities = setOf(RuntimeCapabilities.LEGACY_CORE),
                     enabled = {
                         !config.safeMode && !config.disableAllHooks &&
-                            !(config.disableVisualModifications && category == FeatureCategory.VISUAL)
+                            !(config.disableVisualModifications && category == FeatureCategory.VISUAL) &&
+                            !LegacyHomeConflictPolicy.blocks(className, config)
                     },
                     installer = {
                         val clazz = LegacyRuntimeAdapter::class.java.classLoader!!.loadClass(className)
