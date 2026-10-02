@@ -32,44 +32,61 @@ class UnobfuscatorCache private constructor(private val mApplication: Applicatio
     val sPrefsCacheHooks: SharedPreferences
     private val sPrefsCacheStrings: SharedPreferences
     private val reverseResourceMap = ConcurrentHashMap<String, String>()
+    val initializationStatus: ResolverCacheStatus
 
     init {
-        try {
+        initializationStatus = try {
             sPrefsCacheHooks =
                 mApplication.getSharedPreferences("UnobfuscatorCache", Context.MODE_PRIVATE)
             sPrefsCacheStrings =
                 mApplication.getSharedPreferences("UnobfuscatorCacheStrings", Context.MODE_PRIVATE)
-            val version = sPrefsCacheHooks.getLong("version", 0)
-            val currentVersion = mApplication.packageManager
-                .getPackageInfo(mApplication.packageName, 0).longVersionCode
+            val hostPackageInfo = mApplication.packageManager
+                .getPackageInfo(mApplication.packageName, 0)
+            val currentHostVersionCode = hostPackageInfo.longVersionCode
+            val currentHostVersionName = hostPackageInfo.versionName.orEmpty()
+            val savedHostVersionCode = sPrefsCacheHooks.getLong("version", 0)
+            val savedHostVersionName = sPrefsCacheHooks.getString("host_version_name", "") ?: ""
             val savedUpdateTime = sPrefsCacheHooks.getLong("updateTime", 0)
             val savedCacheSchemaVersion = sPrefsCacheHooks.getInt("cache_schema_version", 0)
-            val savedVersionName = sPrefsCacheHooks.getString("wae_version_name", "") ?: ""
-            val versionName = BuildConfig.VERSION_NAME
+            val savedModuleVersionName = sPrefsCacheHooks.getString("wae_version_name", "") ?: ""
+            val currentModuleVersionName = BuildConfig.VERSION_NAME
             var lastUpdateTime = savedUpdateTime
             try {
                 lastUpdateTime = mApplication.packageManager
                     .getPackageInfo(BuildConfig.APPLICATION_ID, 0).lastUpdateTime
             } catch (_: Exception) {
             }
-            if (version != currentVersion || (savedUpdateTime != lastUpdateTime && BuildConfig.RESET_ON_INSTALL)
-                || versionName != savedVersionName
-                || savedCacheSchemaVersion != CACHE_SCHEMA_VERSION
-            ) {
+            val status = ResolverCachePolicy.evaluate(
+                saved = ResolverCacheIdentity(
+                    hostVersionCode = savedHostVersionCode,
+                    hostVersionName = savedHostVersionName,
+                    moduleUpdateTime = savedUpdateTime,
+                    moduleVersionName = savedModuleVersionName,
+                    cacheSchemaVersion = savedCacheSchemaVersion
+                ),
+                current = ResolverCacheIdentity(
+                    hostVersionCode = currentHostVersionCode,
+                    hostVersionName = currentHostVersionName,
+                    moduleUpdateTime = lastUpdateTime,
+                    moduleVersionName = currentModuleVersionName,
+                    cacheSchemaVersion = CACHE_SCHEMA_VERSION
+                ),
+                resetOnModuleUpdate = BuildConfig.RESET_ON_INSTALL
+            )
+            if (status.disposition == ResolverCacheDisposition.INVALIDATED) {
                 Utils.showToast(mApplication.getString(R.string.starting_cache), Toast.LENGTH_LONG)
                 sPrefsCacheHooks.edit(commit = true) { clear() }
-                sPrefsCacheHooks.edit(commit = true) { putLong("version", currentVersion) }
-                sPrefsCacheHooks.edit(commit = true) { putLong("updateTime", lastUpdateTime) }
                 sPrefsCacheHooks.edit(commit = true) {
-                    putInt(
-                        "cache_schema_version",
-                        CACHE_SCHEMA_VERSION
-                    )
+                    putLong("version", currentHostVersionCode)
+                    putString("host_version_name", currentHostVersionName)
+                    putLong("updateTime", lastUpdateTime)
+                    putInt("cache_schema_version", CACHE_SCHEMA_VERSION)
+                    putString("wae_version_name", currentModuleVersionName)
                 }
-                sPrefsCacheHooks.edit(commit = true) { putString("wae_version_name", versionName) }
                 sPrefsCacheStrings.edit(commit = true) { clear() }
             }
             initCacheStrings()
+            status
         } catch (e: Exception) {
             throw RuntimeException("Can't initialize UnobfuscatorCache: ${e.message}", e)
         }
@@ -80,10 +97,11 @@ class UnobfuscatorCache private constructor(private val mApplication: Applicatio
         private var mInstance: UnobfuscatorCache? = null
 
         @JvmStatic
-        fun init(mApp: Application) {
+        fun init(mApp: Application): ResolverCacheStatus {
             if (mInstance == null) {
                 mInstance = UnobfuscatorCache(mApp)
             }
+            return mInstance!!.initializationStatus
         }
 
         @JvmStatic

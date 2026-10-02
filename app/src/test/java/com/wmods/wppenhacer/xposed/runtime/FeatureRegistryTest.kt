@@ -53,6 +53,40 @@ class FeatureRegistryTest {
     }
 
     @Test
+    fun unrelatedCapabilityFailureDoesNotBlockFrameworkVisualFeature() {
+        val capabilities = CapabilityRegistry()
+        val brokenPrivacyTarget = CapabilityId("privacy.test.target")
+        val glassPlatform = CapabilityId("visual.glass.platform")
+        capabilities.resolve<String>(brokenPrivacyTarget) { error("resolver target changed") }
+        capabilities.resolve(glassPlatform) { "localized-framework-renderer" }
+        val registry = FeatureRegistry(capabilities)
+        var glassInstalled = false
+        registry.register(
+            spec("privacy.test", setOf(brokenPrivacyTarget)) { error("must not install") }
+        )
+        registry.register(
+            FeatureSpec(
+                id = FeatureId("visual.experimental.liquid-glass-prototype"),
+                diagnosticName = "Liquid Glass feasibility prototype",
+                category = FeatureCategory.VISUAL,
+                requiredCapabilities = setOf(glassPlatform),
+                enabled = { true },
+                installer = { glassInstalled = true }
+            )
+        )
+
+        registry.installAll()
+
+        val records = registry.snapshot().associateBy { it.id.value }
+        assertEquals(FeatureStatus.UNSUPPORTED, records.getValue("privacy.test").status)
+        assertEquals(
+            FeatureStatus.READY,
+            records.getValue("visual.experimental.liquid-glass-prototype").status
+        )
+        assertTrue(glassInstalled)
+    }
+
+    @Test
     fun disabledFeatureIsNotInstalled() {
         val registry = FeatureRegistry(CapabilityRegistry())
         var installed = false

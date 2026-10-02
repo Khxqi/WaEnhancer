@@ -10,6 +10,7 @@ import androidx.preference.PreferenceManager
 import com.wmods.wppenhacer.activities.MainActivity
 import com.wmods.wppenhacer.xposed.core.FeatureLoader
 import com.wmods.wppenhacer.xposed.runtime.RuntimeConfigReader
+import com.wmods.wppenhacer.xposed.runtime.RuntimeTrace
 import de.robv.android.xposed.IXposedHookInitPackageResources
 import de.robv.android.xposed.IXposedHookLoadPackage
 import de.robv.android.xposed.IXposedHookZygoteInit
@@ -69,8 +70,10 @@ class WppXposed : IXposedHookLoadPackage, IXposedHookInitPackageResources, IXpos
         }
 
         if (packageName == FeatureLoader.PACKAGE_WPP) {
+            RuntimeTrace.event("lsposed-module-loaded", packageName)
             if (lpparam.isFirstApplication) { // I believe this may fix the problem when using multiple accounts, not yet tested
                 XposedBridge.log("[•] This package: ${lpparam.packageName}")
+                RuntimeTrace.event("bootstrap-install-requested", lpparam.processName)
                 FeatureLoader.start(classLoader, lpparam.appInfo.sourceDir, lpparam.processName)
             }
         }
@@ -97,6 +100,7 @@ class WppXposed : IXposedHookLoadPackage, IXposedHookInitPackageResources, IXpos
         resourceClasses.forEach {
             injectResources(it, modRes, resparam)
         }
+        RuntimeTrace.event("resources-injected", packageName)
 
     }
 

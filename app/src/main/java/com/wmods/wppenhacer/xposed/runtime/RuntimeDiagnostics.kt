@@ -31,12 +31,14 @@ object RuntimeDiagnostics {
     fun currentJson(): JSONObject {
         val session = RuntimeState.session
         val config = RuntimeState.config
+        val compatibility = RuntimeState.hostCompatibility
+        val resolverCache = RuntimeState.resolverCacheStatus
         val capabilities = RuntimeState.capabilities?.snapshot().orEmpty()
         val features = RuntimeState.features?.snapshot().orEmpty()
         val capabilityStates = capabilities.associateBy { it.id }
 
         return JSONObject().apply {
-            put("schemaVersion", 4)
+            put("schemaVersion", 5)
             put("moduleVersion", session?.moduleVersion ?: BuildConfig.VERSION_NAME)
             put("whatsAppVersionName", session?.whatsAppVersionName ?: JSONObject.NULL)
             put("whatsAppVersionCode", session?.whatsAppVersionCode ?: JSONObject.NULL)
@@ -49,6 +51,28 @@ object RuntimeDiagnostics {
             put("disableVisualModifications", config?.disableVisualModifications ?: true)
             put("configurationTransport", config?.transportStatus?.name ?: "UNAVAILABLE")
             put("configurationFailure", config?.failureSummary?.let(DiagnosticSanitizer::sanitize) ?: JSONObject.NULL)
+            put("hostCompatibility", JSONObject().apply {
+                put("metadataAccepted", compatibility?.metadataAccepted ?: false)
+                put("mode", compatibility?.mode?.name ?: "UNAVAILABLE")
+                put(
+                    "summary",
+                    compatibility?.summary?.let(DiagnosticSanitizer::sanitize) ?: JSONObject.NULL
+                )
+            })
+            put("resolverCache", JSONObject().apply {
+                put("disposition", resolverCache?.disposition?.name ?: "UNAVAILABLE")
+                put("invalidationReason", resolverCache?.invalidationReason?.name ?: JSONObject.NULL)
+                put(
+                    "previousHostVersionCode",
+                    resolverCache?.previousHostVersionCode ?: JSONObject.NULL
+                )
+                put("currentHostVersionCode", resolverCache?.currentHostVersionCode ?: JSONObject.NULL)
+                put(
+                    "previousHostVersionName",
+                    resolverCache?.previousHostVersionName ?: JSONObject.NULL
+                )
+                put("currentHostVersionName", resolverCache?.currentHostVersionName ?: JSONObject.NULL)
+            })
             val glass = GlassRuntimeState.snapshot()
             put("glass", JSONObject().apply {
                 put("prototypeEnabled", config?.enableLiquidGlassPrototype ?: false)

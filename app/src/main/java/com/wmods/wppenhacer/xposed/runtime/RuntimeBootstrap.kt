@@ -25,7 +25,11 @@ object RuntimeBootstrap {
     private val initialized = AtomicBoolean(false)
 
     fun install(loader: ClassLoader, sourceDir: String, processName: String) {
-        if (!hookInstalled.compareAndSet(false, true)) return
+        if (!hookInstalled.compareAndSet(false, true)) {
+            RuntimeTrace.event("bootstrap-hook-already-installed")
+            return
+        }
+        RuntimeTrace.event("bootstrap-hook-installed", processName)
         RuntimeState.stage(RuntimeStage.PACKAGE_VALIDATION, RuntimeStageStatus.RUNNING)
         XposedHelpers.findAndHookMethod(
             Instrumentation::class.java,
@@ -35,6 +39,7 @@ object RuntimeBootstrap {
                 override fun beforeHookedMethod(param: MethodHookParam) {
                     if (!initialized.compareAndSet(false, true)) return
                     val application = param.args[0] as Application
+                    RuntimeTrace.event("bootstrap-entered", application.packageName)
                     initialize(application, loader, sourceDir, processName)
                 }
             }
@@ -49,6 +54,7 @@ object RuntimeBootstrap {
     ) {
         try {
             if (application.packageName != FeatureLoader.PACKAGE_WPP) {
+                RuntimeTrace.event("package-rejected", application.packageName)
                 RuntimeState.stage(
                     RuntimeStage.PACKAGE_VALIDATION,
                     RuntimeStageStatus.FAILED,
@@ -56,6 +62,7 @@ object RuntimeBootstrap {
                 )
                 return
             }
+            RuntimeTrace.event("package-accepted", application.packageName)
             RuntimeState.stage(RuntimeStage.PACKAGE_VALIDATION, RuntimeStageStatus.READY)
             FeatureLoader.mApp = application
             Utils.appClassLoader = loader
@@ -68,6 +75,7 @@ object RuntimeBootstrap {
                 RuntimeConfigReader.read(application)
             }
             if (configAccess == null) {
+                RuntimeTrace.event("configuration-failed-closed", "Configuration capability unavailable")
                 RuntimeState.stage(RuntimeStage.CONFIGURATION, RuntimeStageStatus.FAILED)
                 return
             }
@@ -84,6 +92,7 @@ object RuntimeBootstrap {
                 },
                 config.failureSummary
             )
+            RuntimeTrace.event("configuration-ready", config.transportStatus.name)
 
             RuntimeState.stage(RuntimeStage.HOST_IDENTITY, RuntimeStageStatus.RUNNING)
             val session = capabilities.resolve(RuntimeCapabilities.HOST_SESSION) {
@@ -94,11 +103,33 @@ object RuntimeBootstrap {
                 RuntimeStage.HOST_IDENTITY,
                 if (session == null) RuntimeStageStatus.FAILED else RuntimeStageStatus.READY
             )
+            if (session == null) {
+                RuntimeTrace.event("host-identity-failed")
+                publish(application)
+                return
+            }
+
+            val supportedPatterns = runCatching {
+                application.resources.getStringArray(R.array.supported_versions_wpp).asList()
+            }.getOrDefault(emptyList())
+            val compatibility = WhatsAppVersionPolicy.evaluate(
+                versionName = session.whatsAppVersionName,
+                supportedPatterns = supportedPatterns,
+                bypassEnabled = runCatching {
+                    configAccess.legacyPreferences.getBoolean("bypass_version_check", false)
+                }.getOrDefault(false)
+            )
+            RuntimeState.hostCompatibility = compatibility
+            RuntimeTrace.event(
+                if (compatibility.metadataAccepted) "version-accepted" else "version-rejected",
+                "${session.whatsAppVersionName} (${compatibility.mode.name})"
+            )
 
             val registry = FeatureRegistry(capabilities)
             RuntimeState.features = registry
             GlassFeatureRegistry.resolve(capabilities, application)
             GlassFeatureRegistry.register(registry, capabilities, application, config)
+            RuntimeTrace.event("glass-feature-registered")
             var privacyConfig = PrivacyConfigReader.read(
                 configAccess.legacyPreferences,
                 config
@@ -121,6 +152,7 @@ object RuntimeBootstrap {
                 registry.installAll()
                 RuntimeState.stage(RuntimeStage.FEATURE_INSTALLATION, RuntimeStageStatus.SKIPPED, "Global kill switch")
                 RuntimeState.stage(RuntimeStage.STOPPED, RuntimeStageStatus.READY, "All hooks disabled")
+                RuntimeTrace.event("startup-stopped", "Global kill switch")
                 publish(application)
                 return
             }
@@ -144,11 +176,42 @@ object RuntimeBootstrap {
                 RuntimeState.stage(RuntimeStage.CAPABILITY_RESOLUTION, RuntimeStageStatus.SKIPPED, "Safe mode")
                 RuntimeState.stage(RuntimeStage.FEATURE_INSTALLATION, RuntimeStageStatus.READY, "Optional features skipped")
                 RuntimeState.stage(RuntimeStage.COMPLETE, RuntimeStageStatus.READY, "Safe mode")
+                RuntimeTrace.event("startup-complete", "Safe mode")
+                publish(application)
+                return
+            }
+
+            if (compatibility.mode == HostCompatibilityMode.FRAMEWORK_ONLY) {
+                RuntimeState.stage(
+                    RuntimeStage.RESOLVER_INITIALIZATION,
+                    RuntimeStageStatus.SKIPPED,
+                    compatibility.summary
+                )
+                RuntimeState.stage(
+                    RuntimeStage.CAPABILITY_RESOLUTION,
+                    RuntimeStageStatus.SKIPPED,
+                    compatibility.summary
+                )
+                RuntimeState.stage(RuntimeStage.FEATURE_INSTALLATION, RuntimeStageStatus.RUNNING)
+                RuntimeTrace.event("feature-registry-started", "Framework-only compatibility mode")
+                registry.installAll()
+                RuntimeState.stage(
+                    RuntimeStage.FEATURE_INSTALLATION,
+                    RuntimeStageStatus.READY,
+                    "Only resolver-independent features considered"
+                )
+                RuntimeState.stage(
+                    RuntimeStage.COMPLETE,
+                    RuntimeStageStatus.READY,
+                    compatibility.summary
+                )
+                RuntimeTrace.event("startup-complete", compatibility.summary)
                 publish(application)
                 return
             }
 
             RuntimeState.stage(RuntimeStage.RESOLVER_INITIALIZATION, RuntimeStageStatus.RUNNING)
+            RuntimeTrace.event("resolver-initialization-started")
             val moduleContext = capabilities.resolve(RuntimeCapabilities.MODULE_RESOURCES) {
                 ContextThemeWrapper(application, R.style.AppTheme) as Context
             }
@@ -165,26 +228,25 @@ object RuntimeBootstrap {
             )
 
             RuntimeState.stage(RuntimeStage.CAPABILITY_RESOLUTION, RuntimeStageStatus.RUNNING)
-            capabilities.resolve(RuntimeCapabilities.RESOLVER_CACHE) {
-                UnobfuscatorCache.init(application)
+            RuntimeTrace.event("capability-resolution-started")
+            val cacheStatus = capabilities.resolve(RuntimeCapabilities.RESOLVER_CACHE) {
+                val status = UnobfuscatorCache.init(application)
+                RuntimeState.resolverCacheStatus = status
+                RuntimeTrace.event(
+                    "resolver-cache-${status.disposition.name.lowercase()}",
+                    status.invalidationReason?.name ?: "host version unchanged"
+                )
                 SharedPreferencesWrapper.hookInit(application.classLoader)
                 ReflectionUtils.initCache(application)
-                true
+                status
+            }
+            if (cacheStatus == null && RuntimeState.resolverCacheStatus == null) {
+                RuntimeTrace.event("resolver-cache-failed")
             }
 
-            val supported = isSupportedVersion(application, session?.whatsAppVersionName.orEmpty())
-            if (!supported && dexKitReady == true) {
+            if (compatibility.mode == HostCompatibilityMode.FULL_RUNTIME_BYPASS && dexKitReady == true) {
                 runCatching { installExpirationFallback(loader) }
                     .onFailure { XposedBridge.log(it) }
-                if (!configAccess.legacyPreferences.getBoolean("bypass_version_check", false)) {
-                    RuntimeState.stage(
-                        RuntimeStage.CAPABILITY_RESOLUTION,
-                        RuntimeStageStatus.FAILED,
-                        "Unsupported WhatsApp version; optional features not installed"
-                    )
-                    publish(application)
-                    return
-                }
             }
 
             if (dexKitReady == true && capabilities.isReady(RuntimeCapabilities.RESOLVER_CACHE)) {
@@ -226,6 +288,7 @@ object RuntimeBootstrap {
             )
 
             RuntimeState.stage(RuntimeStage.FEATURE_INSTALLATION, RuntimeStageStatus.RUNNING)
+            RuntimeTrace.event("feature-registry-started", "Resolver-dependent runtime")
             PrivacyFeatureRegistry.register(
                 registry,
                 capabilities,
@@ -247,9 +310,11 @@ object RuntimeBootstrap {
             )
             RuntimeState.stage(RuntimeStage.FEATURE_INSTALLATION, RuntimeStageStatus.READY)
             RuntimeState.stage(RuntimeStage.COMPLETE, RuntimeStageStatus.READY)
+            RuntimeTrace.event("startup-complete", "Feature registry finished")
             publish(application)
         } catch (throwable: Throwable) {
             XposedBridge.log(throwable)
+            RuntimeTrace.event("startup-failed-closed", DiagnosticSanitizer.failureSummary(throwable))
             RuntimeState.stage(
                 RuntimeStage.STOPPED,
                 RuntimeStageStatus.FAILED,
@@ -268,11 +333,6 @@ object RuntimeBootstrap {
             if (published) null else "Companion diagnostics provider unavailable"
         )
         if (published) RuntimeDiagnosticsPublisher.publish(application)
-    }
-
-    private fun isSupportedVersion(application: Application, version: String): Boolean {
-        return application.resources.getStringArray(R.array.supported_versions_wpp)
-            .any { version.startsWith(it.replace(".xx", "")) }
     }
 
     fun installExpirationFallback(classLoader: ClassLoader) {
