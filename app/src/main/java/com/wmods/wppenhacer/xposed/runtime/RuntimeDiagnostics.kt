@@ -38,7 +38,7 @@ object RuntimeDiagnostics {
         val capabilityStates = capabilities.associateBy { it.id }
 
         return JSONObject().apply {
-            put("schemaVersion", 11)
+            put("schemaVersion", 12)
             put("moduleVersion", session?.moduleVersion ?: BuildConfig.VERSION_NAME)
             put("whatsAppVersionName", session?.whatsAppVersionName ?: JSONObject.NULL)
             put("whatsAppVersionCode", session?.whatsAppVersionCode ?: JSONObject.NULL)
@@ -197,8 +197,16 @@ object RuntimeDiagnostics {
                     "visualDestinationOrder",
                     home.visualDestinationOrder ?: JSONObject.NULL
                 )
+                put("navIconSource", home.navIconSource ?: JSONObject.NULL)
+                put("chatsIconStyle", home.chatsIconStyle ?: JSONObject.NULL)
+                put("selectionShape", home.selectionShape ?: JSONObject.NULL)
                 put("profileSourceDiscovered", home.profileSourceDiscovered)
                 put("profileActionMapped", home.profileActionMapped)
+                put("ownProfileAvatarResolved", home.ownProfileAvatarResolved)
+                put("profileImageSourceClass", home.profileImageSourceClass ?: JSONObject.NULL)
+                put("profileImageSourceResource", home.profileImageSourceResource ?: JSONObject.NULL)
+                put("settingsActionMapped", home.settingsActionMapped)
+                put("settingsActionSourceClass", home.settingsActionSourceClass ?: JSONObject.NULL)
                 put("hostFabDetected", home.hostFabDetected)
                 put("hostFabVisualSuppressed", home.hostFabVisualSuppressed)
                 put("customFabAttached", home.customFabAttached)
@@ -217,6 +225,20 @@ object RuntimeDiagnostics {
                     home.activePillBounds?.let(DiagnosticSanitizer::sanitize) ?: JSONObject.NULL
                 )
                 put("scrollHideShowInstalled", home.scrollHideShowInstalled)
+                put("scrollableClass", home.scrollableClass ?: JSONObject.NULL)
+                put("scrollableResourceName", home.scrollableResourceName ?: JSONObject.NULL)
+                put("scrollEventsObserved", home.scrollEventsObserved)
+                put("lastScrollOffsetPx", home.lastScrollOffsetPx)
+                put("lastScrollDeltaPx", home.lastScrollDeltaPx)
+                put("barHiddenByScroll", home.barHiddenByScroll)
+                put("originalNavParentClass", home.originalNavParentClass ?: JSONObject.NULL)
+                put("originalNavParentHeight", home.originalNavParentHeight ?: JSONObject.NULL)
+                put("navigationBarInsetBottom", home.navigationBarInsetBottom)
+                put("gestureInsetBottom", home.gestureInsetBottom)
+                put("blackStripSource", home.blackStripSource ?: JSONObject.NULL)
+                put("productionGlassMode", home.productionGlassMode ?: JSONObject.NULL)
+                put("centerRefractionStrengthDp", home.centerRefractionStrengthDp ?: JSONObject.NULL)
+                put("edgeRefractionStrengthDp", home.edgeRefractionStrengthDp ?: JSONObject.NULL)
                 put("glassSurfaceCount", home.glassSurfaceCount)
                 put("hierarchyCaptureCount", home.hierarchyCaptureCount)
                 put("lastCaptureMs", home.lastCaptureMs ?: JSONObject.NULL)

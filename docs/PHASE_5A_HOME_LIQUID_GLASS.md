@@ -28,9 +28,10 @@ Home controls do not carry independent copies of these values.
 The refined appearance intentionally differs from the exaggerated blue Phase 4 diagnostic style.
 The current device-correction pass also rejects the first Phase 5A result: that 64 dp/30 dp version
 looked like a heavy gray acrylic slab and allowed repeated chat text plus the stock green FAB to
-contaminate the backdrop. The replacement uses a 62 dp capsule, 24 dp visual blur request,
-2.2 dp boundary-weighted refraction, 0.13 dark/0.14 light neutral tint opacity, and 1.06/1.04
-saturation. The center is deliberately stable; refraction rises only near the material edge.
+contaminate the backdrop. The replacement uses a 62 dp capsule, native 24 dp GPU blur,
+2.0 dp boundary-only refraction, 0.13 dark/0.14 light neutral tint opacity, and 1.05/1.04
+saturation. Native blur supplies primary softness before AGSL adds tint, rim, depth, and edge
+lensing. The center is spatially stable; refraction rises only in the outer boundary band.
 An explicit 0.85 dp gradient rim supplies a brighter upper highlight and restrained lower depth.
 Green is reserved for mirrored live badges. These remain development values for device evaluation,
 not final visual sign-off.
@@ -58,19 +59,23 @@ a deterministic custom visual order:
 4. Chats
 5. Profile / Avatar
 
-The fifth slot is accepted only when a clickable, accessible, photo-like profile/avatar action can
-be validated in the Home header. Its live drawable, accessibility meaning, click, and long-click
-remain host-owned. No profile route, obfuscated method, or fake avatar is synthesized; discovery
-failure leaves the complete stock navigation visible.
+Profile artwork and Settings routing are validated independently. A live photo is accepted only
+when resource/accessibility context explicitly identifies the current account/profile and contains
+none of the Status/story/contact/chat rejection signals. Otherwise the fifth slot uses an
+independently drawn neutral placeholder and never substitutes an arbitrary photo. Its click
+delegates only to a separately discovered explicit Settings action. If Settings cannot be proven,
+that custom slot is disabled and the original Settings entry remains accessible.
 
 After validation, the controller moves the **real host navigation ViewGroup** into one
 `GlassNavigationSurface` attached to the activity `DecorView`. Its original pixels and accessibility
 tree are hidden while it stays attached as the functional source of truth. A separate, fully custom
-icon-only presentation mirrors each host destination's runtime drawable, badge, accessible label,
-and selected/activated state. Custom destination clicks and long-clicks delegate to the matching
+icon-only presentation uses independently authored vectors: segmented Updates ring, outlined
+handset, three-person outline, and two overlapping speech bubbles. It mirrors only each host
+destination's live badge, accessible label, and selected/activated state. Custom clicks delegate to
+the matching
 host destination; no obfuscated routing method or hard-coded destination action is used. If even
 one destination has no safely mirrorable drawable, the mutation is rolled back and stock navigation
-is restored.
+is restored. Host destination artwork is never used for the four standard visible icons.
 
 No text label is created inside the floating bar. Every destination receives one equal-width visual
 cell and a normalized 42 dp optical box; navigation icons target 29 dp while the circular live avatar
@@ -229,6 +234,33 @@ adb shell dumpsys meminfo com.whatsapp > meminfo-phase5a.txt
 
 Raw Android and LSPosed logs can contain unrelated sensitive information. Review them before
 sharing; diagnostics intentionally omit messages, chat text, contact names, phone numbers, and JIDs.
+
+## OnePlus correction pass
+
+The current correction pass is based on the latest real-device screenshot, not a simulated host.
+It replaces all four standard host artworks with independent Phase-5A vectors, separates own-account
+avatar discovery from Settings routing, and uses a neutral profile placeholder whenever ownership
+cannot be proven. A Status/story/contact image is an explicit rejection signal.
+
+Scroll visibility now reads the discovered RecyclerView's absolute vertical offset. If its public
+offset method is unavailable, adapter position plus first-child top provides a recycling-safe
+fallback. The thresholds are asymmetric: 24 dp down hides, 12 dp up shows, and list top forces
+visible. The bar is translated/animated in place and is never detached for scroll visibility.
+
+After moving the host navigation, an otherwise empty plausible-height wrapper is classified as the
+obsolete black-strip source and collapsed transactionally. If the wrapper is not safe to collapse,
+Home alone opts into public edge-to-edge window drawing with transparent navigation bar and keeps
+the floating controls above gesture insets. Both paths have rollback snapshots.
+
+Production material is `NATIVE_BLUR_EDGE_SHADER`: one retained host recording, one cached native
+GPU blur, then one cached RuntimeShader for low-opacity tint, rim/highlight/depth and boundary-only
+refraction. No per-frame shader/effect creation is added. The center uses a single already-blurred
+sample, eliminating the separated multi-offset text copies while retaining a real dynamic backdrop.
+
+Diagnostics schema 12 adds icon/chat/selection identity; scroll source, events, offset, delta and
+hidden state; independent avatar and Settings source state; original navigation-parent and system
+insets; black-strip classification; and blur-first material/refraction mode. All fields remain
+sanitized and contain no view text or personal content.
 
 ## Known risks and limits
 

@@ -133,6 +133,7 @@ internal object GlassShaderProgram {
             uniform float saturation;
             uniform float progress;
             uniform float capsuleGeometry;
+            uniform float backdropAlreadyBlurred;
             layout(color) uniform half4 tint;
 
             half4 sampleSoft(float2 p, float radius) {
@@ -162,10 +163,16 @@ internal object GlassShaderProgram {
                 float2 rectangularNormal = normalize(rectangular + float2(0.0001, 0.0001));
                 float edge = mix(rectangularEdge, capsuleEdge, capsuleGeometry);
                 float2 n = normalize(mix(rectangularNormal, capsuleNormal, capsuleGeometry));
-                float lens = smoothstep(0.78, 1.0, edge);
+                // Production Home glass uses native RenderEffect blur first. Keep the broad
+                // center spatially stable; lensing belongs only to the material boundary.
+                float lens = smoothstep(0.86, 1.0, edge);
                 float pulse = 0.92 + 0.08 * sin(progress * 6.2831853);
                 float2 refracted = p - n * refraction * lens * lens * lens * pulse;
-                half4 color = sampleSoft(refracted, blurRadius * (0.72 + 0.20 * depth));
+                half4 color = mix(
+                    sampleSoft(refracted, blurRadius * (0.72 + 0.20 * depth)),
+                    backdrop.eval(refracted),
+                    half(backdropAlreadyBlurred)
+                );
                 half luminance = dot(color.rgb, half3(0.2126, 0.7152, 0.0722));
                 color.rgb = mix(half3(luminance), color.rgb, half(saturation));
                 color = mix(color, tint, half(tintOpacity));
@@ -189,7 +196,8 @@ internal fun configureGlassShader(
     bounds: RectF,
     style: GlassStyle,
     animationProgress: Float = style.animationProgress,
-    shape: GlassShape = GlassShape.Rounded
+    shape: GlassShape = GlassShape.Rounded,
+    backdropAlreadyBlurred: Boolean = false
 ) {
     val safe = style.sanitized()
     shader.setFloatUniform("center", bounds.centerX(), bounds.centerY())
@@ -206,6 +214,7 @@ internal fun configureGlassShader(
         "capsuleGeometry",
         if (shape == GlassShape.Capsule || shape == GlassShape.Circle) 1f else 0f
     )
+    shader.setFloatUniform("backdropAlreadyBlurred", if (backdropAlreadyBlurred) 1f else 0f)
     shader.setColorUniform("tint", safe.tintColor)
 }
 

@@ -2,7 +2,6 @@ package com.wmods.wppenhacer.ui.home
 
 import android.animation.TimeInterpolator
 import android.content.Context
-import android.content.res.ColorStateList
 import android.graphics.Canvas
 import android.graphics.LinearGradient
 import android.graphics.Outline
@@ -55,7 +54,7 @@ class GlassSelectionPill(
         ).apply {
             shape = GradientDrawable.RECTANGLE
             cornerRadius = tokens.navigationHeightDp * density / 2f
-            setStroke((0.75f * density).toInt().coerceAtLeast(1), tokens.selectionStrokeColor)
+            setStroke((0.35f * density).toInt().coerceAtLeast(1), tokens.selectionStrokeColor)
         }
         alpha = 0f
     }
@@ -147,7 +146,7 @@ private class GlassOuterRimView(
 
 /**
  * Visible icon-only destination. The real WhatsApp destination remains attached but transparent;
- * this view mirrors only its icon/badge/state and delegates click and long-click behavior to it.
+ * this view owns its Phase-5A icon artwork while delegating behavior/state to the host.
  */
 private class GlassNavigationDestinationView(
     context: Context,
@@ -159,22 +158,26 @@ private class GlassNavigationDestinationView(
     private val iconBox = FrameLayout(context)
     private val icon = ImageView(context)
     private val badge = TextView(context)
-    private var sourceImage: ImageView = requireNotNull(
-        HomeVisualMirror.primaryImage(hostDestination)
-    ) { "host destination has no drawable icon" }
+    private val customIcon = if (slot.kind == HomeDestinationKind.PROFILE) {
+        null
+    } else {
+        Phase5NavigationIconDrawable(
+            HomeNavigationIconPolicy.glyph(slot.kind),
+            tokens.secondaryContentColor
+        )
+    }
+    private var sourceImage: ImageView? = profileImageView()
     private var lastSourceDrawable: Drawable? = null
     private var originalColorIcon = false
 
     init {
-        isClickable = true
-        isFocusable = true
+        isClickable = hostDestination?.isClickable == true
+        isFocusable = isClickable
         foreground = null
         background = null
         importantForAccessibility = IMPORTANT_FOR_ACCESSIBILITY_YES
-        setOnClickListener {
-            hostDestination.performClick()
-        }
-        setOnLongClickListener { hostDestination.performLongClick() }
+        setOnClickListener { hostDestination?.performClick() }
+        setOnLongClickListener { hostDestination?.performLongClick() == true }
 
         val iconBoxSize = (tokens.navigationIconBoxDp * density).toInt()
         val requestedIconDp = if (slot.kind == HomeDestinationKind.PROFILE) {
@@ -198,6 +201,7 @@ private class GlassNavigationDestinationView(
         icon.isFocusable = false
         icon.importantForAccessibility = IMPORTANT_FOR_ACCESSIBILITY_NO
         iconBox.addView(icon, LayoutParams(iconSize, iconSize, Gravity.CENTER))
+        if (customIcon != null) icon.setImageDrawable(customIcon)
 
         badge.gravity = Gravity.CENTER
         badge.includeFontPadding = false
@@ -227,39 +231,50 @@ private class GlassNavigationDestinationView(
     override fun getAccessibilityClassName(): CharSequence = android.widget.Button::class.java.name
 
     fun refresh(active: Boolean) {
-        contentDescription = HomeVisualMirror.accessibleLabel(hostDestination)
+        contentDescription = hostDestination?.let(HomeVisualMirror::accessibleLabel)
+            ?: if (slot.kind == HomeDestinationKind.PROFILE) "Settings" else slot.kind.name
         isSelected = active
         isActivated = active
 
-        val currentImage = HomeVisualMirror.primaryImage(hostDestination) ?: sourceImage
-        if (currentImage !== sourceImage || currentImage.drawable !== lastSourceDrawable) {
-            sourceImage = currentImage
-            lastSourceDrawable = currentImage.drawable
-            originalColorIcon = slot.kind == HomeDestinationKind.PROFILE ||
-                HomeVisualMirror.preservesOriginalColor(currentImage)
-            icon.setImageDrawable(HomeVisualMirror.cloneDrawable(currentImage, resources))
-            icon.scaleType = if (originalColorIcon) {
-                ImageView.ScaleType.CENTER_CROP
-            } else {
-                ImageView.ScaleType.CENTER_INSIDE
-            }
-            icon.clipToOutline = originalColorIcon
-            icon.outlineProvider = if (originalColorIcon) CIRCLE_OUTLINE else null
-        }
-        icon.imageTintList = if (originalColorIcon) {
-            null
-        } else {
-            ColorStateList.valueOf(
-                if (active) {
-                    tokens.activeNavigationIconColor
+        if (slot.kind == HomeDestinationKind.PROFILE) {
+            val currentImage = profileImageView()
+            if (currentImage !== sourceImage || currentImage?.drawable !== lastSourceDrawable) {
+                sourceImage = currentImage
+                lastSourceDrawable = currentImage?.drawable
+                originalColorIcon = currentImage?.drawable != null
+                icon.setImageDrawable(
+                    if (currentImage != null) {
+                        HomeVisualMirror.cloneDrawable(currentImage, resources)
+                    } else {
+                        Phase5NavigationIconDrawable(
+                            HomeNavigationGlyph.PROFILE_PLACEHOLDER,
+                            tokens.secondaryContentColor
+                        )
+                    }
+                )
+                icon.scaleType = if (originalColorIcon) {
+                    ImageView.ScaleType.CENTER_CROP
                 } else {
-                    tokens.secondaryContentColor
+                    ImageView.ScaleType.CENTER_INSIDE
                 }
-            )
+                icon.clipToOutline = originalColorIcon
+                icon.outlineProvider = if (originalColorIcon) CIRCLE_OUTLINE else null
+            }
+        } else {
+            customIcon?.color = if (active) {
+                tokens.activeNavigationIconColor
+            } else {
+                tokens.secondaryContentColor
+            }
         }
+        icon.imageTintList = null
         icon.alpha = if (active) 1f else tokens.inactiveIconAlpha
 
-        val badgeState = HomeVisualMirror.badgeState(hostDestination)
+        val badgeState = if (slot.kind == HomeDestinationKind.PROFILE || hostDestination == null) {
+            HostBadgeState(visible = false, text = null)
+        } else {
+            HomeVisualMirror.badgeState(hostDestination)
+        }
         badge.visibility = if (badgeState.visible) View.VISIBLE else View.GONE
         badge.text = badgeState.text ?: ""
         val badgeParams = badge.layoutParams
@@ -274,6 +289,12 @@ private class GlassNavigationDestinationView(
             (tokens.badgeMinSizeDp * density).toInt()
         }
         badge.layoutParams = badgeParams
+    }
+
+    private fun profileImageView(): ImageView? = when (val source = slot.profileImageSource) {
+        is ImageView -> source
+        null -> null
+        else -> HomeVisualMirror.primaryImage(source)
     }
 
     private companion object {
@@ -365,13 +386,8 @@ class GlassNavigationSurface(
         check(destinationSlots.map { it.kind } == HomeVisualSlotMapper.ORDER) {
             "visual destination order is not canonical"
         }
-        val mirrorableIconCount = destinationSlots.count {
-            HomeVisualMirror.primaryImage(it.functionalSource)?.drawable != null
-        }
-        check(
-            HomeCustomNavigationPolicy.canReplace(destinationSlots.size, mirrorableIconCount)
-        ) {
-            "one or more host destinations have no drawable icon"
+        check(HomeCustomNavigationPolicy.canReplace(destinationSlots)) {
+            "custom destination mapping is incomplete"
         }
         val mirrors = destinationSlots.map { slot ->
             GlassNavigationDestinationView(context, slot, tokens)
@@ -493,7 +509,8 @@ class GlassNavigationSurface(
         var activeIndex = -1
         var activeCount = 0
         for (index in destinations.indices) {
-            if (!isDestinationSelected(destinations[index].functionalSource)) continue
+            val source = destinations[index].functionalSource ?: continue
+            if (!isDestinationSelected(source)) continue
             activeIndex = index
             activeCount++
         }

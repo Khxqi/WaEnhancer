@@ -100,9 +100,9 @@ class HomeRedesignTest {
     }
 
     @Test
-    fun customNavigationRequiresOneMirrorableIconPerHostDestinationAndNoLabels() {
-        assertTrue(HomeCustomNavigationPolicy.canReplace(5, 5))
-        assertFalse(HomeCustomNavigationPolicy.canReplace(4, 4))
+    fun customNavigationRequiresFourFunctionalHostDestinationsAndNoLabels() {
+        assertTrue(HomeCustomNavigationPolicy.canReplace(4, 4))
+        assertTrue(HomeCustomNavigationPolicy.canReplace(4, 5))
         assertFalse(HomeCustomNavigationPolicy.canReplace(5, 4))
         assertFalse(HomeCustomNavigationPolicy.canReplace(2, 2))
         assertEquals(0, HomeCustomNavigationPolicy.VISIBLE_LABEL_COUNT)
@@ -112,7 +112,7 @@ class HomeRedesignTest {
     fun productionTokensStayClearSlimNeutralAndUseDarkSelectionInBothModes() {
         listOf(LiquidGlassTokens.DARK, LiquidGlassTokens.LIGHT).forEach { tokens ->
             assertTrue(tokens.navigationHeightDp in 60f..66f)
-            assertTrue(tokens.refractionDp in 2f..3.5f)
+            assertTrue(tokens.refractionDp in 1.5f..2.5f)
             assertTrue(tokens.blurDp in 20f..26f)
             assertTrue(tokens.navigationTintOpacity in 0.10f..0.16f)
             assertTrue(tokens.saturation in 1.03f..1.10f)
@@ -129,7 +129,9 @@ class HomeRedesignTest {
             HomeDestinationKind.COMMUNITIES to "host-communities",
             HomeDestinationKind.CALLS to "host-calls"
         )
-        val mapped = requireNotNull(HomeVisualSlotMapper.map(host, "host-profile"))
+        val mapped = requireNotNull(
+            HomeVisualSlotMapper.map(host, "settings-action", "own-profile-image")
+        )
         assertEquals(
             listOf(
                 HomeDestinationKind.UPDATES,
@@ -142,34 +144,45 @@ class HomeRedesignTest {
         )
         assertEquals("host-updates", mapped[0].functionalSource)
         assertEquals("host-chats", mapped[3].functionalSource)
-        assertEquals("host-profile", mapped[4].functionalSource)
+        assertEquals("settings-action", mapped[4].functionalSource)
+        assertEquals("own-profile-image", mapped[4].profileImageSource)
     }
 
     @Test
-    fun fifthSlotRequiresValidatedProfileSourceAndMissingSourceFailsClosed() {
+    fun unsafeProfileImageUsesNeutralFallbackAndNeverStatusPhoto() {
         val host = mapOf(
             HomeDestinationKind.CHATS to 1,
             HomeDestinationKind.UPDATES to 2,
             HomeDestinationKind.COMMUNITIES to 3,
             HomeDestinationKind.CALLS to 4
         )
-        assertNull(HomeVisualSlotMapper.map(host, null))
-        assertTrue(
-            HomeProfileSourcePolicy.isValid(
-                clickable = true,
-                hasDrawable = true,
-                preservesOriginalColor = true,
-                hasAccessibleMeaning = true,
-                locatedInHomeHeader = true
+        val mapped = requireNotNull(HomeVisualSlotMapper.map(host, null, null))
+        assertNull(mapped.last().profileImageSource)
+        assertEquals(
+            HomeNavigationIconSource.NEUTRAL_PLACEHOLDER,
+            HomeNavigationIconPolicy.source(HomeDestinationKind.PROFILE, false)
+        )
+        assertTrue(HomeNavigationIconPolicy.glyph(HomeDestinationKind.CHATS) ==
+            HomeNavigationGlyph.OVERLAPPING_BUBBLES)
+        assertFalse(
+            HomeOwnProfileAvatarPolicy.isValid(
+                hasPhotoDrawable = true,
+                locatedInHomeHeader = true,
+                signals = HomeSemanticSignals(setOf("recent_status_avatar"), "Status")
             )
         )
-        assertFalse(
-            HomeProfileSourcePolicy.isValid(
+        assertTrue(
+            HomeOwnProfileAvatarPolicy.isValid(
+                hasPhotoDrawable = true,
+                locatedInHomeHeader = true,
+                signals = HomeSemanticSignals(setOf("settings_profile_photo"), "My profile")
+            )
+        )
+        assertTrue(
+            HomeSettingsActionPolicy.isValid(
                 clickable = true,
-                hasDrawable = true,
-                preservesOriginalColor = false,
-                hasAccessibleMeaning = true,
-                locatedInHomeHeader = true
+                visible = true,
+                signals = HomeSemanticSignals(setOf("settings"), "Settings")
             )
         )
     }
@@ -185,24 +198,42 @@ class HomeRedesignTest {
 
     @Test
     fun activePillAndOpticalBoxesStayInsideExactlyOneDestinationCell() {
-        val pill = HomeSelectionPillPolicy.size(84, 62, 3, 5)
+        val pill = HomeSelectionPillPolicy.size(84, 62, 2, 6)
         assertTrue(pill.width in 1..84)
         assertTrue(pill.height in 1..62)
-        assertEquals(78, pill.width)
-        assertEquals(52, pill.height)
+        assertEquals(80, pill.width)
+        assertEquals(50, pill.height)
+        assertTrue(pill.width > pill.height)
         assertEquals(29.0f, HomeIconBoxPolicy.normalizedIconSize(42f, 29f))
         assertEquals(32.0f, HomeIconBoxPolicy.normalizedAvatarSize(42f, 32f))
     }
 
     @Test
     fun scrollHideShowUsesThresholdAndAlwaysShowsAtTop() {
-        val policy = HomeScrollVisibilityPolicy(thresholdPx = 24)
+        val policy = HomeScrollVisibilityPolicy(downThresholdPx = 24, upThresholdPx = 12)
         assertFalse(policy.onScroll(12, atTop = false))
         assertTrue(policy.onScroll(12, atTop = false))
-        assertTrue(policy.onScroll(-10, atTop = false))
-        assertFalse(policy.onScroll(-14, atTop = false))
+        assertTrue(policy.onScroll(-6, atTop = false))
+        assertFalse(policy.onScroll(-6, atTop = false))
         assertTrue(policy.onScroll(24, atTop = false))
         assertFalse(policy.onScroll(0, atTop = true))
+    }
+
+    @Test
+    fun absoluteScrollOffsetSurvivesChildRecyclingAndTopForcesVisible() {
+        val tracker = HomeScrollOffsetTracker(initialOffsetPx = 100)
+        assertEquals(24, tracker.sample(124, atTop = false).deltaPx)
+        assertEquals(76, tracker.sample(200, atTop = false).deltaPx)
+        val top = tracker.sample(999, atTop = true)
+        assertEquals(0, top.offsetPx)
+        assertEquals(-200, top.deltaPx)
+    }
+
+    @Test
+    fun obsoleteEmptyHostNavContainerIsTheOnlyCollapsibleShape() {
+        assertTrue(HomeNavParentCollapsePolicy.shouldCollapse(HomeNavParentShape(false, 0, 0, 72f)))
+        assertFalse(HomeNavParentCollapsePolicy.shouldCollapse(HomeNavParentShape(true, 0, 0, 72f)))
+        assertFalse(HomeNavParentCollapsePolicy.shouldCollapse(HomeNavParentShape(false, 1, 1, 72f)))
     }
 
     private fun config(enableHome: Boolean) = RuntimeConfigSnapshot(

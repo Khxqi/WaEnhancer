@@ -47,7 +47,8 @@ data class LiquidGlassTokens(
     val outerRimDp: Float,
     val homeHorizontalMarginDp: Float,
     val searchHorizontalPaddingDp: Float,
-    val scrollThresholdDp: Float,
+    val scrollDownThresholdDp: Float,
+    val scrollUpThresholdDp: Float,
     val navigationVisibilityDurationMs: Long,
     val searchRadiusDp: Float,
     val titleTextSp: Float,
@@ -75,7 +76,7 @@ data class LiquidGlassTokens(
             navigationTintOpacity = 0.13f,
             selectionFillColor = 0xA8101216.toInt(),
             selectionHighlightColor = 0x902C2F35.toInt(),
-            selectionStrokeColor = 0x42FFFFFF,
+            selectionStrokeColor = 0x16FFFFFF,
             activeNavigationIconColor = Color.WHITE,
             primaryContentColor = Color.WHITE,
             secondaryContentColor = 0xFFD5D7DC.toInt(),
@@ -83,11 +84,11 @@ data class LiquidGlassTokens(
             actionHighlightColor = 0x54FFFFFF,
             actionStrokeColor = 0x46FFFFFF,
             blurDp = 24f,
-            refractionDp = 2.2f,
-            edgeIntensity = 0.58f,
-            highlightIntensity = 0.56f,
-            depth = 0.72f,
-            saturation = 1.06f,
+            refractionDp = 2.0f,
+            edgeIntensity = 0.52f,
+            highlightIntensity = 0.50f,
+            depth = 0.58f,
+            saturation = 1.05f,
             horizontalMarginDp = 16f,
             bottomMarginDp = 12f,
             navigationHeightDp = 62f,
@@ -95,8 +96,8 @@ data class LiquidGlassTokens(
             navigationIconBoxDp = 42f,
             navigationAvatarDp = 32f,
             navigationHorizontalContentInsetDp = 4f,
-            selectionHorizontalInsetDp = 3f,
-            selectionVerticalInsetDp = 5f,
+            selectionHorizontalInsetDp = 2f,
+            selectionVerticalInsetDp = 6f,
             inactiveIconAlpha = 0.82f,
             badgeColor = 0xFF25D366.toInt(),
             badgeTextColor = 0xFF07130B.toInt(),
@@ -113,7 +114,8 @@ data class LiquidGlassTokens(
             outerRimDp = 0.85f,
             homeHorizontalMarginDp = 16f,
             searchHorizontalPaddingDp = 14f,
-            scrollThresholdDp = 28f,
+            scrollDownThresholdDp = 24f,
+            scrollUpThresholdDp = 12f,
             navigationVisibilityDurationMs = 190L,
             searchRadiusDp = 18f,
             titleTextSp = 31f,
@@ -221,8 +223,11 @@ object HomeCustomNavigationPolicy {
     const val VISIBLE_LABEL_COUNT = 0
     const val REQUIRED_VISUAL_DESTINATIONS = 5
 
-    fun canReplace(hostDestinationCount: Int, mirrorableIconCount: Int): Boolean {
-        return hostDestinationCount == REQUIRED_VISUAL_DESTINATIONS &&
-            mirrorableIconCount == hostDestinationCount
-    }
+    fun <T> canReplace(slots: List<HomeVisualSlot<T>>): Boolean =
+        slots.map { it.kind } == HomeVisualSlotMapper.ORDER &&
+            slots.filter { it.kind != HomeDestinationKind.PROFILE }
+                .all { it.functionalSource != null }
+
+    fun canReplace(hostDestinationCount: Int, mappedFunctionalCount: Int): Boolean =
+        hostDestinationCount == 4 && mappedFunctionalCount in 4..5
 }

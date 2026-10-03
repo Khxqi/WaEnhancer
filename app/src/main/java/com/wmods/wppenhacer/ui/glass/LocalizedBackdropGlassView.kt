@@ -389,10 +389,23 @@ class LocalizedBackdropGlassView(
             shaderBounds,
             configuredStyle,
             animationProgress = FROZEN_GLASS_PROGRESS,
-            shape = GlassShape.Capsule
+            shape = GlassShape.Capsule,
+            backdropAlreadyBlurred = !diagnosticProbeEnabled
         )
-        val configuredEffect =
-            RenderEffect.createRuntimeShaderEffect(configuredShader, "backdrop")
+        val shaderEffect = RenderEffect.createRuntimeShaderEffect(configuredShader, "backdrop")
+        val configuredEffect = if (diagnosticProbeEnabled) {
+            shaderEffect
+        } else {
+            // Blur the retained host replay once on the GPU, then apply only boundary lensing,
+            // tint and highlights in AGSL. This avoids the separated multi-tap text copies seen
+            // in the earlier production material while retaining a real dynamic backdrop.
+            val nativeBlur = RenderEffect.createBlurEffect(
+                configuredStyle.blurRadiusPx,
+                configuredStyle.blurRadiusPx,
+                Shader.TileMode.CLAMP
+            )
+            RenderEffect.createChainEffect(shaderEffect, nativeBlur)
+        }
 
         currentGlassShader = configuredShader
         currentGlassEffect = configuredEffect

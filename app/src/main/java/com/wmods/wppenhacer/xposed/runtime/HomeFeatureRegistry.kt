@@ -3,6 +3,7 @@ package com.wmods.wppenhacer.xposed.runtime
 import android.app.Activity
 import android.app.Application
 import android.content.res.Configuration
+import android.graphics.Color
 import android.graphics.drawable.Drawable
 import android.graphics.drawable.GradientDrawable
 import android.os.Build
@@ -12,7 +13,9 @@ import android.view.View
 import android.view.ViewGroup
 import android.view.ViewTreeObserver
 import android.widget.FrameLayout
+import android.widget.ImageView
 import android.widget.TextView
+import androidx.core.view.WindowCompat
 import androidx.core.view.ViewCompat
 import androidx.core.view.WindowInsetsCompat
 import com.wmods.wppenhacer.ui.glass.GlassCapabilities
@@ -30,8 +33,14 @@ import com.wmods.wppenhacer.ui.home.HomeCustomNavigationPolicy
 import com.wmods.wppenhacer.ui.home.HomeDestinationKind
 import com.wmods.wppenhacer.ui.home.HomeGlassSurfaceOwnership
 import com.wmods.wppenhacer.ui.home.HomeHostVisualState
-import com.wmods.wppenhacer.ui.home.HomeProfileSourcePolicy
+import com.wmods.wppenhacer.ui.home.HomeBlackStripSource
+import com.wmods.wppenhacer.ui.home.HomeNavParentCollapsePolicy
+import com.wmods.wppenhacer.ui.home.HomeNavParentShape
+import com.wmods.wppenhacer.ui.home.HomeOwnProfileAvatarPolicy
+import com.wmods.wppenhacer.ui.home.HomeScrollOffsetTracker
 import com.wmods.wppenhacer.ui.home.HomeScrollVisibilityPolicy
+import com.wmods.wppenhacer.ui.home.HomeSemanticSignals
+import com.wmods.wppenhacer.ui.home.HomeSettingsActionPolicy
 import com.wmods.wppenhacer.ui.home.HomeNavigationShape
 import com.wmods.wppenhacer.ui.home.HomeNavigationValidator
 import com.wmods.wppenhacer.ui.home.HomeVisualSlot
@@ -134,13 +143,32 @@ private data class ChromeSnapshot(
     val titleView: TextView?,
     val chatDestinationIndex: Int,
     val actionOverlay: GlassHomeActionOverlay?,
-    val profileSource: View,
-    val profileVisualState: HomeHostVisualState,
+    val settingsActionSource: View?,
+    val settingsActionVisualState: HomeHostVisualState?,
     val hostFab: View?,
     val searchView: View?,
     val searchBackground: Drawable?,
     val searchPadding: ViewPaddingSnapshot?,
     val searchMargins: ViewMarginSnapshot?
+)
+
+private data class NavParentSnapshot(
+    val visibility: Int,
+    val alpha: Float,
+    val layoutHeight: Int,
+    val measuredHeight: Int,
+    val paddingStart: Int,
+    val paddingTop: Int,
+    val paddingEnd: Int,
+    val paddingBottom: Int,
+    val background: Drawable?,
+    val minimumHeight: Int,
+    val collapsed: Boolean
+)
+
+private data class HomeWindowSnapshot(
+    val navigationBarColor: Int,
+    val contrastEnforced: Boolean?
 )
 
 private data class HomeAttachment(
@@ -151,6 +179,8 @@ private data class HomeAttachment(
     val originalParent: ViewGroup,
     val originalIndex: Int,
     val originalLayoutParams: ViewGroup.LayoutParams,
+    val navParentSnapshot: NavParentSnapshot,
+    val windowSnapshot: HomeWindowSnapshot?,
     val surface: GlassNavigationSurface,
     val paddedContent: ViewGroup?,
     val paddingSnapshot: ViewPaddingSnapshot?,
@@ -162,25 +192,32 @@ private data class HomeNavigationDiscovery(
     val navigation: ViewGroup,
     val hostDestinations: Map<HomeDestinationKind, View>,
     val badgeCount: Int,
-    val profileSource: View?,
-    val visualSlots: List<HomeVisualSlot<View>>?,
+    val profileImageSource: ImageView?,
+    val settingsActionSource: View?,
+    val visualSlots: List<HomeVisualSlot<View>>,
     val hostFab: View?
 )
 
 private class HomeScrollVisibilityController(
     private val scrollable: ViewGroup,
     private val surface: GlassNavigationSurface,
-    thresholdPx: Int
+    downThresholdPx: Int,
+    upThresholdPx: Int,
+    private val onSample: (offset: Int, delta: Int, hidden: Boolean) -> Unit
 ) : ViewTreeObserver.OnScrollChangedListener {
-    private val policy = HomeScrollVisibilityPolicy(thresholdPx)
-    private var firstChild: View? = null
-    private var firstChildTop = 0
+    private val policy = HomeScrollVisibilityPolicy(downThresholdPx, upThresholdPx)
+    private val offsetMethod = runCatching {
+        scrollable.javaClass.getMethod("computeVerticalScrollOffset").apply { isAccessible = true }
+    }.getOrNull()
+    private val adapterPositionMethod = runCatching {
+        scrollable.javaClass.getMethod("getChildAdapterPosition", View::class.java)
+    }.getOrNull()
+    private val tracker = HomeScrollOffsetTracker(readOffset())
     private var started = false
 
     fun start() {
         if (started) return
         started = true
-        snapshotFirstChild()
         scrollable.viewTreeObserver.addOnScrollChangedListener(this)
     }
 
@@ -196,20 +233,21 @@ private class HomeScrollVisibilityController(
     override fun onScrollChanged() {
         if (!started) return
         val atTop = !scrollable.canScrollVertically(-1)
-        val current = scrollable.getChildAt(0)
-        val delta = if (current != null && current === firstChild) {
-            firstChildTop - current.top
-        } else {
-            0
-        }
-        surface.setHiddenForScroll(policy.onScroll(delta, atTop))
-        firstChild = current
-        firstChildTop = current?.top ?: 0
+        val sample = tracker.sample(readOffset(), atTop)
+        val hidden = policy.onScroll(sample.deltaPx, sample.atTop)
+        surface.setHiddenForScroll(hidden)
+        onSample(sample.offsetPx, sample.deltaPx, hidden)
     }
 
-    private fun snapshotFirstChild() {
-        firstChild = scrollable.getChildAt(0)
-        firstChildTop = firstChild?.top ?: 0
+    private fun readOffset(): Int {
+        val direct = runCatching { (offsetMethod?.invoke(scrollable) as? Int) }.getOrNull()
+        if (direct != null && direct >= 0) return direct
+        val first = scrollable.getChildAt(0) ?: return 0
+        val adapterPosition = runCatching {
+            (adapterPositionMethod?.invoke(scrollable, first) as? Int)
+        }.getOrNull()?.coerceAtLeast(0) ?: 0
+        val itemExtent = first.height.coerceAtLeast(1)
+        return (adapterPosition * itemExtent - first.top + scrollable.paddingTop).coerceAtLeast(0)
     }
 }
 
@@ -333,19 +371,7 @@ private class IosHomeChromeController(
             }
             return
         }
-        val profileSource = discovery.profileSource
         val visualSlots = discovery.visualSlots
-        if (profileSource == null || visualSlots == null) {
-            HomeRuntimeState.update { current ->
-                current.copy(profileSourceDiscovered = false, profileActionMapped = false)
-            }
-            if (attempt + 1 < MAX_DISCOVERY_ATTEMPTS) {
-                scheduleAttach(activity, attempt + 1)
-            } else {
-                fail(activity, "validated-profile-source-not-found")
-            }
-            return
-        }
         if (!HomeGlassSurfaceOwnership.canAttach(attachments.size, attachments.containsKey(activity))) {
             fail(activity, "duplicate-glass-surface-prevented")
             return
@@ -359,6 +385,7 @@ private class IosHomeChromeController(
             return
         }
         val originalIndex = originalParent.indexOfChild(navigation)
+        val originalParentSnapshot = captureNavParent(originalParent)
         val darkMode = (activity.resources.configuration.uiMode and
             Configuration.UI_MODE_NIGHT_MASK) == Configuration.UI_MODE_NIGHT_YES
         val tokens = LiquidGlassTokens.forDarkMode(darkMode)
@@ -401,9 +428,20 @@ private class IosHomeChromeController(
         var paddingSnapshot: ViewPaddingSnapshot? = null
         var scrollController: HomeScrollVisibilityController? = null
         var chrome: ChromeSnapshot? = null
+        var navParentSnapshot = originalParentSnapshot
+        var windowSnapshot: HomeWindowSnapshot? = null
         try {
             originalParent.removeView(navigation)
             moved = true
+            navParentSnapshot = collapseObsoleteNavParent(
+                originalParent,
+                contentRoot,
+                originalParentSnapshot,
+                density = activity.resources.displayMetrics.density
+            )
+            if (!navParentSnapshot.collapsed) {
+                windowSnapshot = enableHomeEdgeToEdge(activity)
+            }
             surface.attachHostNavigation(navigation, visualSlots)
             val density = activity.resources.displayMetrics.density
             val side = (tokens.horizontalMarginDp * density).toInt()
@@ -429,14 +467,24 @@ private class IosHomeChromeController(
                 surface,
                 tokens,
                 HomeVisualSlotMapper.ORDER.indexOf(HomeDestinationKind.CHATS),
-                profileSource,
+                discovery.settingsActionSource,
                 discovery.hostFab
             )
             scrollController = paddedContent?.let { scrollable ->
                 HomeScrollVisibilityController(
                     scrollable,
                     surface,
-                    (tokens.scrollThresholdDp * density).toInt()
+                    (tokens.scrollDownThresholdDp * density).toInt(),
+                    (tokens.scrollUpThresholdDp * density).toInt()
+                ) { offset, delta, hidden ->
+                    HomeRuntimeState.update { current ->
+                        current.copy(
+                            scrollEventsObserved = current.scrollEventsObserved + 1,
+                            lastScrollOffsetPx = offset,
+                            lastScrollDeltaPx = delta,
+                            barHiddenByScroll = hidden
+                        )
+                    }
                 ).also { it.start() }
             }
             val attachment = HomeAttachment(
@@ -447,6 +495,8 @@ private class IosHomeChromeController(
                 originalParent = originalParent,
                 originalIndex = originalIndex,
                 originalLayoutParams = originalLayoutParams,
+                navParentSnapshot = navParentSnapshot,
+                windowSnapshot = windowSnapshot,
                 surface = surface,
                 paddedContent = paddedContent,
                 paddingSnapshot = paddingSnapshot,
@@ -477,8 +527,16 @@ private class IosHomeChromeController(
                     visualDestinationOrder = HomeVisualSlotMapper.ORDER.joinToString(",") {
                         it.name
                     },
-                    profileSourceDiscovered = true,
-                    profileActionMapped = true,
+                    navIconSource = "CUSTOM_VECTOR",
+                    chatsIconStyle = "OVERLAPPING_BUBBLES",
+                    selectionShape = "CAPSULE",
+                    profileSourceDiscovered = discovery.profileImageSource != null,
+                    profileActionMapped = discovery.settingsActionSource != null,
+                    ownProfileAvatarResolved = discovery.profileImageSource != null,
+                    profileImageSourceClass = discovery.profileImageSource?.javaClass?.name,
+                    profileImageSourceResource = discovery.profileImageSource?.let(::resourceEntryName),
+                    settingsActionMapped = discovery.settingsActionSource != null,
+                    settingsActionSourceClass = discovery.settingsActionSource?.javaClass?.name,
                     hostFabDetected = discovery.hostFab != null,
                     hostFabVisualSuppressed = discovery.hostFab?.let { fab ->
                         chrome?.actionOverlay?.isHostSuppressed(fab)
@@ -489,6 +547,18 @@ private class IosHomeChromeController(
                     productionBlurStrengthDp = tokens.blurDp,
                     barHeightDp = tokens.navigationHeightDp,
                     scrollHideShowInstalled = scrollController != null,
+                    scrollableClass = paddedContent?.javaClass?.name,
+                    scrollableResourceName = paddedContent?.let(::resourceEntryName),
+                    originalNavParentClass = originalParent.javaClass.name,
+                    originalNavParentHeight = originalParentSnapshot.measuredHeight,
+                    blackStripSource = if (navParentSnapshot.collapsed) {
+                        HomeBlackStripSource.HOST_NAV_CONTAINER.name
+                    } else {
+                        HomeBlackStripSource.SYSTEM_NAVIGATION.name
+                    },
+                    productionGlassMode = "NATIVE_BLUR_EDGE_SHADER",
+                    centerRefractionStrengthDp = 0f,
+                    edgeRefractionStrengthDp = tokens.refractionDp,
                     runtimeVerified = false,
                     failure = null
                 )
@@ -515,6 +585,8 @@ private class IosHomeChromeController(
                 }
             }
             chrome?.let { restoreChrome(contentRoot, it) }
+            restoreNavParent(originalParent, navParentSnapshot)
+            restoreHomeWindow(activity, windowSnapshot)
             if (moved && navigation.parent == null) {
                 restoreToOriginalParent(
                     navigation,
@@ -573,14 +645,23 @@ private class IosHomeChromeController(
             RuntimeTrace.event("home-nav-rejected", "semantic-destination-set-incomplete")
             return null
         }
-        val profileSource = discoverProfileSource(activity, contentRoot, navigation)
-        val visualSlots = HomeVisualSlotMapper.map(hostDestinations, profileSource)
-        val hostFab = discoverHostFab(activity, contentRoot, navigation, profileSource)
+        val profileImageSource = discoverOwnProfileImageSource(activity, contentRoot, navigation)
+        val settingsActionSource = discoverSettingsActionSource(activity, contentRoot, navigation)
+        val visualSlots = requireNotNull(
+            HomeVisualSlotMapper.map(hostDestinations, settingsActionSource, profileImageSource)
+        )
+        val hostFab = discoverHostFab(
+            activity,
+            contentRoot,
+            navigation,
+            setOfNotNull(profileImageSource, settingsActionSource)
+        )
         return HomeNavigationDiscovery(
             navigation = navigation,
             hostDestinations = hostDestinations,
             badgeCount = destinations.sumOf(::countBadgeViews),
-            profileSource = profileSource,
+            profileImageSource = profileImageSource,
+            settingsActionSource = settingsActionSource,
             visualSlots = visualSlots,
             hostFab = hostFab
         )
@@ -644,48 +725,73 @@ private class IosHomeChromeController(
         id.takeIf { it != 0 }?.let { runCatching { activity.getString(it) }.getOrNull() }
     }.map { it.lowercase() }.toSet()
 
-    private fun discoverProfileSource(
+    private fun discoverOwnProfileImageSource(
         activity: Activity,
         contentRoot: ViewGroup,
         navigation: ViewGroup
-    ): View? {
+    ): ImageView? {
         val density = activity.resources.displayMetrics.density
         val decorHeight = activity.window.decorView.height.coerceAtLeast(1)
         val headerLimit = minOf((280f * density).toInt(), (decorHeight * 0.34f).toInt())
-        return clickableLeafDestinations(contentRoot)
+        return descendants(contentRoot)
             .asSequence()
-            .filter { !isDescendantOf(it, navigation) }
-            .mapNotNull { action ->
-                val image = HomeVisualMirror.primaryImage(action) ?: return@mapNotNull null
+            .filterIsInstance<ImageView>()
+            .filter { image -> image.isShown && !isDescendantOf(image, navigation) }
+            .mapNotNull { image ->
                 val location = IntArray(2)
-                action.getLocationInWindow(location)
-                val label = HomeVisualMirror.accessibleLabel(action)?.toString()
-                val names = descendants(action).mapNotNull(::resourceEntryName)
-                    .map { it.lowercase() }
-                    .toSet()
-                val labelSignal = label?.lowercase().orEmpty()
-                val semanticHint = PROFILE_TOKENS.any { token ->
-                    names.any { it.contains(token) } || labelSignal.contains(token)
+                image.getLocationInWindow(location)
+                val names = buildSet {
+                    var current: View? = image
+                    repeat(3) {
+                        current?.let { candidate -> resourceEntryName(candidate)?.lowercase()?.let(::add) }
+                        current = current?.parent as? View
+                    }
                 }
-                val valid = HomeProfileSourcePolicy.isValid(
-                    clickable = action.isClickable && action.isEnabled,
-                    hasDrawable = image.drawable != null,
-                    preservesOriginalColor = HomeVisualMirror.isPhotoLike(image),
-                    hasAccessibleMeaning = !label.isNullOrBlank() && semanticHint,
-                    locatedInHomeHeader = location[1] >= 0 && location[1] < headerLimit
+                val label = generateSequence(image as View) { it.parent as? View }
+                    .take(4)
+                    .mapNotNull { HomeVisualMirror.accessibleLabel(it)?.toString() }
+                    .firstOrNull()
+                val valid = HomeOwnProfileAvatarPolicy.isValid(
+                    hasPhotoDrawable = image.drawable != null && HomeVisualMirror.isPhotoLike(image),
+                    locatedInHomeHeader = location[1] >= 0 && location[1] < headerLimit,
+                    signals = HomeSemanticSignals(names, label)
                 )
-                if (!valid) null else action to location[0]
+                if (!valid) null else image to location[0]
             }
             .sortedByDescending { it.second }
             .map { it.first }
             .firstOrNull()
     }
 
+    private fun discoverSettingsActionSource(
+        activity: Activity,
+        contentRoot: ViewGroup,
+        navigation: ViewGroup
+    ): View? = clickableLeafDestinations(contentRoot)
+        .asSequence()
+        .filter { !isDescendantOf(it, navigation) }
+        .mapNotNull { action ->
+            val names = descendants(action).mapNotNull(::resourceEntryName)
+                .map { it.lowercase() }.toSet()
+            val signals = HomeSemanticSignals(
+                names,
+                HomeVisualMirror.accessibleLabel(action)?.toString()
+            )
+            action.takeIf {
+                HomeSettingsActionPolicy.isValid(
+                    clickable = it.isClickable && it.isEnabled,
+                    visible = it.isShown && it.visibility == View.VISIBLE,
+                    signals = signals
+                )
+            }
+        }
+        .firstOrNull()
+
     private fun discoverHostFab(
         activity: Activity,
         contentRoot: ViewGroup,
         navigation: ViewGroup,
-        profileSource: View?
+        excludedSources: Set<View>
     ): View? {
         val density = activity.resources.displayMetrics.density
         val decor = activity.window.decorView
@@ -693,7 +799,7 @@ private class IosHomeChromeController(
         val decorHeight = decor.height.coerceAtLeast(1)
         return clickableLeafDestinations(contentRoot)
             .asSequence()
-            .filter { it !== profileSource && !isDescendantOf(it, navigation) }
+            .filter { it !in excludedSources && !isDescendantOf(it, navigation) }
             .mapNotNull { action ->
                 val widthDp = action.width / density
                 val heightDp = action.height / density
@@ -734,6 +840,87 @@ private class IosHomeChromeController(
         return runCatching { view.resources.getResourceEntryName(view.id) }.getOrNull()
     }
 
+    private fun captureNavParent(parent: ViewGroup) = NavParentSnapshot(
+        visibility = parent.visibility,
+        alpha = parent.alpha,
+        layoutHeight = parent.layoutParams?.height ?: parent.height,
+        measuredHeight = parent.height,
+        paddingStart = parent.paddingStart,
+        paddingTop = parent.paddingTop,
+        paddingEnd = parent.paddingEnd,
+        paddingBottom = parent.paddingBottom,
+        background = parent.background,
+        minimumHeight = parent.minimumHeight,
+        collapsed = false
+    )
+
+    private fun collapseObsoleteNavParent(
+        parent: ViewGroup,
+        contentRoot: ViewGroup,
+        original: NavParentSnapshot,
+        density: Float
+    ): NavParentSnapshot {
+        val shape = HomeNavParentShape(
+            isContentRoot = parent === contentRoot,
+            remainingChildCount = parent.childCount,
+            visibleRemainingChildCount = (0 until parent.childCount)
+                .count { parent.getChildAt(it).visibility == View.VISIBLE },
+            heightDp = parent.height / density.coerceAtLeast(0.1f)
+        )
+        if (!HomeNavParentCollapsePolicy.shouldCollapse(shape)) return original
+        parent.visibility = View.GONE
+        parent.alpha = 0f
+        parent.minimumHeight = 0
+        parent.setPadding(0, 0, 0, 0)
+        parent.background = null
+        parent.layoutParams?.let { params ->
+            params.height = 0
+            parent.layoutParams = params
+        }
+        return original.copy(collapsed = true)
+    }
+
+    private fun restoreNavParent(parent: ViewGroup, snapshot: NavParentSnapshot) {
+        parent.visibility = snapshot.visibility
+        parent.alpha = snapshot.alpha
+        parent.minimumHeight = snapshot.minimumHeight
+        parent.setPaddingRelative(
+            snapshot.paddingStart,
+            snapshot.paddingTop,
+            snapshot.paddingEnd,
+            snapshot.paddingBottom
+        )
+        parent.background = snapshot.background
+        parent.layoutParams?.let { params ->
+            params.height = snapshot.layoutHeight
+            parent.layoutParams = params
+        }
+    }
+
+    private fun enableHomeEdgeToEdge(activity: Activity): HomeWindowSnapshot {
+        val window = activity.window
+        val snapshot = HomeWindowSnapshot(
+            navigationBarColor = window.navigationBarColor,
+            contrastEnforced = if (Build.VERSION.SDK_INT >= 29) {
+                window.isNavigationBarContrastEnforced
+            } else null
+        )
+        WindowCompat.setDecorFitsSystemWindows(window, false)
+        window.navigationBarColor = Color.TRANSPARENT
+        if (Build.VERSION.SDK_INT >= 29) window.isNavigationBarContrastEnforced = false
+        return snapshot
+    }
+
+    private fun restoreHomeWindow(activity: Activity, snapshot: HomeWindowSnapshot?) {
+        if (snapshot == null) return
+        val window = activity.window
+        WindowCompat.setDecorFitsSystemWindows(window, true)
+        window.navigationBarColor = snapshot.navigationBarColor
+        if (Build.VERSION.SDK_INT >= 29 && snapshot.contrastEnforced != null) {
+            window.isNavigationBarContrastEnforced = snapshot.contrastEnforced
+        }
+    }
+
     private fun isDescendantOf(view: View, possibleAncestor: View): Boolean {
         var current: View? = view
         while (current != null) {
@@ -748,6 +935,7 @@ private class IosHomeChromeController(
         val baseMargin = (tokens.bottomMarginDp * density).toInt()
         ViewCompat.setOnApplyWindowInsetsListener(surface) { view, insets ->
             val gestures = insets.getInsets(WindowInsetsCompat.Type.systemGestures())
+            val navigation = insets.getInsets(WindowInsetsCompat.Type.navigationBars())
             val imeVisible = insets.isVisible(WindowInsetsCompat.Type.ime())
             val params = view.layoutParams as? FrameLayout.LayoutParams
             if (params != null) {
@@ -760,6 +948,12 @@ private class IosHomeChromeController(
             surface.setHiddenForIme(
                 !HomeBottomInsetPolicy.shouldShowNavigation(imeVisible)
             )
+            HomeRuntimeState.update { current ->
+                current.copy(
+                    navigationBarInsetBottom = navigation.bottom,
+                    gestureInsetBottom = gestures.bottom
+                )
+            }
             insets
         }
     }
@@ -820,7 +1014,7 @@ private class IosHomeChromeController(
         navigationSurface: GlassNavigationSurface,
         tokens: LiquidGlassTokens,
         chatDestinationIndex: Int,
-        profileSource: View,
+        settingsActionSource: View?,
         hostFab: View?
     ): ChromeSnapshot {
         val contentBackground = contentRoot.background
@@ -832,10 +1026,9 @@ private class IosHomeChromeController(
         val logoId = activity.resources.getIdentifier("toolbar_logo", "id", activity.packageName)
         val logo = logoId.takeIf { it != 0 }?.let { toolbar?.findViewById<View>(it) }
         val logoVisibility = logo?.visibility ?: View.VISIBLE
-        val profileVisualState = HomeHostVisualState(
-            alpha = profileSource.alpha,
-            importantForAccessibility = profileSource.importantForAccessibility
-        )
+        val settingsActionVisualState = settingsActionSource?.let {
+            HomeHostVisualState(it.alpha, it.importantForAccessibility)
+        }
         val searchView = listOf("search_bar", "search_view", "search_container")
             .asSequence()
             .map { activity.resources.getIdentifier(it, "id", activity.packageName) }
@@ -853,9 +1046,10 @@ private class IosHomeChromeController(
                 bar.setBackgroundColor(tokens.homeBackgroundColor)
                 bar.elevation = 0f
             }
-            profileSource.alpha = 0f
-            profileSource.importantForAccessibility =
-                View.IMPORTANT_FOR_ACCESSIBILITY_NO_HIDE_DESCENDANTS
+            settingsActionSource?.let {
+                it.alpha = 0f
+                it.importantForAccessibility = View.IMPORTANT_FOR_ACCESSIBILITY_NO_HIDE_DESCENDANTS
+            }
             title = if (toolbar != null && logo != null) {
                 createChatsTitle(activity, toolbar, tokens)
             } else null
@@ -881,7 +1075,7 @@ private class IosHomeChromeController(
                 searchView.layoutParams = margins
             }
             val actions = toolbar?.let {
-                discoverTopActions(it, surfaceParent, setOfNotNull(profileSource, hostFab))
+                discoverTopActions(it, surfaceParent, setOfNotNull(settingsActionSource, hostFab))
             }.orEmpty()
             val actionBindings = buildList {
                 actions.forEach { action ->
@@ -917,8 +1111,8 @@ private class IosHomeChromeController(
                 titleView = title,
                 chatDestinationIndex = chatDestinationIndex,
                 actionOverlay = actionOverlay,
-                profileSource = profileSource,
-                profileVisualState = profileVisualState,
+                settingsActionSource = settingsActionSource,
+                settingsActionVisualState = settingsActionVisualState,
                 hostFab = hostFab,
                 searchView = searchView,
                 searchBackground = searchBackground,
@@ -938,8 +1132,8 @@ private class IosHomeChromeController(
                     titleView = title,
                     chatDestinationIndex = chatDestinationIndex,
                     actionOverlay = actionOverlay,
-                    profileSource = profileSource,
-                    profileVisualState = profileVisualState,
+                    settingsActionSource = settingsActionSource,
+                    settingsActionVisualState = settingsActionVisualState,
                     hostFab = hostFab,
                     searchView = searchView,
                     searchBackground = searchBackground,
@@ -1036,9 +1230,12 @@ private class IosHomeChromeController(
         }
         chrome.toolbarLogo?.visibility = chrome.toolbarLogoVisibility
         chrome.actionOverlay?.detach()
-        chrome.profileSource.alpha = chrome.profileVisualState.alpha
-        chrome.profileSource.importantForAccessibility =
-            chrome.profileVisualState.importantForAccessibility
+        chrome.settingsActionSource?.let { source ->
+            chrome.settingsActionVisualState?.let { original ->
+                source.alpha = original.alpha
+                source.importantForAccessibility = original.importantForAccessibility
+            }
+        }
         chrome.searchView?.background = chrome.searchBackground
         chrome.searchView?.let { search ->
             chrome.searchPadding?.let { padding ->
@@ -1127,6 +1324,8 @@ private class IosHomeChromeController(
                 attachment.originalLayoutParams
             )
         }
+        restoreNavParent(attachment.originalParent, attachment.navParentSnapshot)
+        restoreHomeWindow(activity, attachment.windowSnapshot)
         attachment.paddedContent?.let { padded ->
             attachment.paddingSnapshot?.let { original ->
                 padded.setPaddingRelative(
@@ -1154,10 +1353,13 @@ private class IosHomeChromeController(
                 customTopActionCount = 0,
                 profileSourceDiscovered = false,
                 profileActionMapped = false,
+                ownProfileAvatarResolved = false,
+                settingsActionMapped = false,
                 hostFabDetected = false,
                 hostFabVisualSuppressed = false,
                 customFabAttached = false,
                 scrollHideShowInstalled = false,
+                barHiddenByScroll = false,
                 activePillBounds = null,
                 runtimeVerified = false
             )
@@ -1210,15 +1412,6 @@ private class IosHomeChromeController(
             HomeDestinationKind.CALLS to setOf("calls", "call"),
             HomeDestinationKind.COMMUNITIES to setOf("communities", "community"),
             HomeDestinationKind.CHATS to setOf("chats", "chat")
-        )
-        val PROFILE_TOKENS = setOf(
-            "profile",
-            "profil",
-            "avatar",
-            "account",
-            "konto",
-            "settings",
-            "einstellungen"
         )
         val FAB_TOKENS = setOf(
             "floatingactionbutton",
