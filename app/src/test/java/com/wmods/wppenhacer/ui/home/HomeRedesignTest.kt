@@ -101,22 +101,108 @@ class HomeRedesignTest {
 
     @Test
     fun customNavigationRequiresOneMirrorableIconPerHostDestinationAndNoLabels() {
-        assertTrue(HomeCustomNavigationPolicy.canReplace(4, 4))
         assertTrue(HomeCustomNavigationPolicy.canReplace(5, 5))
-        assertFalse(HomeCustomNavigationPolicy.canReplace(4, 3))
+        assertFalse(HomeCustomNavigationPolicy.canReplace(4, 4))
+        assertFalse(HomeCustomNavigationPolicy.canReplace(5, 4))
         assertFalse(HomeCustomNavigationPolicy.canReplace(2, 2))
         assertEquals(0, HomeCustomNavigationPolicy.VISIBLE_LABEL_COUNT)
     }
 
     @Test
-    fun productionTokensStaySlimNeutralAndUseDarkSelectionInBothModes() {
+    fun productionTokensStayClearSlimNeutralAndUseDarkSelectionInBothModes() {
         listOf(LiquidGlassTokens.DARK, LiquidGlassTokens.LIGHT).forEach { tokens ->
-            assertTrue(tokens.navigationHeightDp <= 68f)
-            assertTrue(tokens.refractionDp < 3f)
-            assertTrue(tokens.navigationTintOpacity in 0.15f..0.30f)
+            assertTrue(tokens.navigationHeightDp in 60f..66f)
+            assertTrue(tokens.refractionDp in 2f..3.5f)
+            assertTrue(tokens.blurDp in 20f..26f)
+            assertTrue(tokens.navigationTintOpacity in 0.10f..0.16f)
+            assertTrue(tokens.saturation in 1.03f..1.10f)
             assertEquals(0xFFFFFFFF.toInt(), tokens.activeNavigationIconColor)
-            assertTrue((tokens.selectionFillColor ushr 24) >= 0xB0)
+            assertTrue((tokens.selectionFillColor ushr 24) in 0x8C..0xB2)
         }
+    }
+
+    @Test
+    fun visualSlotsAlwaysFollowIosReferenceOrderAndKeepFunctionalSources() {
+        val host = mapOf(
+            HomeDestinationKind.CHATS to "host-chats",
+            HomeDestinationKind.UPDATES to "host-updates",
+            HomeDestinationKind.COMMUNITIES to "host-communities",
+            HomeDestinationKind.CALLS to "host-calls"
+        )
+        val mapped = requireNotNull(HomeVisualSlotMapper.map(host, "host-profile"))
+        assertEquals(
+            listOf(
+                HomeDestinationKind.UPDATES,
+                HomeDestinationKind.CALLS,
+                HomeDestinationKind.COMMUNITIES,
+                HomeDestinationKind.CHATS,
+                HomeDestinationKind.PROFILE
+            ),
+            mapped.map { it.kind }
+        )
+        assertEquals("host-updates", mapped[0].functionalSource)
+        assertEquals("host-chats", mapped[3].functionalSource)
+        assertEquals("host-profile", mapped[4].functionalSource)
+    }
+
+    @Test
+    fun fifthSlotRequiresValidatedProfileSourceAndMissingSourceFailsClosed() {
+        val host = mapOf(
+            HomeDestinationKind.CHATS to 1,
+            HomeDestinationKind.UPDATES to 2,
+            HomeDestinationKind.COMMUNITIES to 3,
+            HomeDestinationKind.CALLS to 4
+        )
+        assertNull(HomeVisualSlotMapper.map(host, null))
+        assertTrue(
+            HomeProfileSourcePolicy.isValid(
+                clickable = true,
+                hasDrawable = true,
+                preservesOriginalColor = true,
+                hasAccessibleMeaning = true,
+                locatedInHomeHeader = true
+            )
+        )
+        assertFalse(
+            HomeProfileSourcePolicy.isValid(
+                clickable = true,
+                hasDrawable = true,
+                preservesOriginalColor = false,
+                hasAccessibleMeaning = true,
+                locatedInHomeHeader = true
+            )
+        )
+    }
+
+    @Test
+    fun hostVisualSuppressionAndFabRollbackRestoreOriginalState() {
+        val original = HomeHostVisualState(alpha = 0.72f, importantForAccessibility = 1)
+        val suppressed = HomeHostVisualPolicy.suppressed(original)
+        assertEquals(0f, suppressed.alpha)
+        assertEquals(4, suppressed.importantForAccessibility)
+        assertEquals(original, HomeHostVisualPolicy.restored(original))
+    }
+
+    @Test
+    fun activePillAndOpticalBoxesStayInsideExactlyOneDestinationCell() {
+        val pill = HomeSelectionPillPolicy.size(84, 62, 3, 5)
+        assertTrue(pill.width in 1..84)
+        assertTrue(pill.height in 1..62)
+        assertEquals(78, pill.width)
+        assertEquals(52, pill.height)
+        assertEquals(29.0f, HomeIconBoxPolicy.normalizedIconSize(42f, 29f))
+        assertEquals(32.0f, HomeIconBoxPolicy.normalizedAvatarSize(42f, 32f))
+    }
+
+    @Test
+    fun scrollHideShowUsesThresholdAndAlwaysShowsAtTop() {
+        val policy = HomeScrollVisibilityPolicy(thresholdPx = 24)
+        assertFalse(policy.onScroll(12, atTop = false))
+        assertTrue(policy.onScroll(12, atTop = false))
+        assertTrue(policy.onScroll(-10, atTop = false))
+        assertFalse(policy.onScroll(-14, atTop = false))
+        assertTrue(policy.onScroll(24, atTop = false))
+        assertFalse(policy.onScroll(0, atTop = true))
     }
 
     private fun config(enableHome: Boolean) = RuntimeConfigSnapshot(

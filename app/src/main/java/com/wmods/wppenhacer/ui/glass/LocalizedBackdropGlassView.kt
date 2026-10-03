@@ -388,7 +388,8 @@ class LocalizedBackdropGlassView(
             configuredShader,
             shaderBounds,
             configuredStyle,
-            animationProgress = FROZEN_GLASS_PROGRESS
+            animationProgress = FROZEN_GLASS_PROGRESS,
+            shape = GlassShape.Capsule
         )
         val configuredEffect =
             RenderEffect.createRuntimeShaderEffect(configuredShader, "backdrop")

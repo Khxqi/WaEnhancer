@@ -3,8 +3,12 @@ package com.wmods.wppenhacer.ui.home
 import android.animation.TimeInterpolator
 import android.content.Context
 import android.content.res.ColorStateList
+import android.graphics.Canvas
+import android.graphics.LinearGradient
 import android.graphics.Outline
+import android.graphics.Paint
 import android.graphics.Rect
+import android.graphics.Shader
 import android.graphics.drawable.Drawable
 import android.graphics.drawable.GradientDrawable
 import android.view.Gravity
@@ -59,8 +63,14 @@ class GlassSelectionPill(
     fun moveTo(bounds: Rect, animate: Boolean) {
         val horizontalInset = (tokens.selectionHorizontalInsetDp * density).toInt()
         val verticalInset = (tokens.selectionVerticalInsetDp * density).toInt()
-        val targetWidth = (bounds.width() - horizontalInset * 2).coerceAtLeast(1)
-        val targetHeight = (bounds.height() - verticalInset * 2).coerceAtLeast(1)
+        val size = HomeSelectionPillPolicy.size(
+            bounds.width(),
+            bounds.height(),
+            horizontalInset,
+            verticalInset
+        )
+        val targetWidth = size.width
+        val targetHeight = size.height
         val params = (layoutParams as? FrameLayout.LayoutParams)
             ?: FrameLayout.LayoutParams(targetWidth, targetHeight)
         if (params.width != targetWidth || params.height != targetHeight) {
@@ -93,16 +103,60 @@ class GlassSelectionPill(
     }
 }
 
+private class GlassOuterRimView(
+    context: Context,
+    private val tokens: LiquidGlassTokens
+) : View(context) {
+    private val density = resources.displayMetrics.density
+    private val rimWidth = tokens.outerRimDp * density
+    private val paint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+        style = Paint.Style.STROKE
+        strokeWidth = rimWidth
+    }
+
+    init {
+        isClickable = false
+        isFocusable = false
+        importantForAccessibility = IMPORTANT_FOR_ACCESSIBILITY_NO
+    }
+
+    override fun onDraw(canvas: Canvas) {
+        if (width <= 0 || height <= 0) return
+        paint.shader = LinearGradient(
+            0f,
+            0f,
+            0f,
+            height.toFloat(),
+            intArrayOf(0x8AFFFFFF.toInt(), 0x3AFFFFFF, 0x16FFFFFF),
+            floatArrayOf(0f, 0.38f, 1f),
+            Shader.TileMode.CLAMP
+        )
+        val inset = rimWidth / 2f
+        val radius = (height - rimWidth) / 2f
+        canvas.drawRoundRect(
+            inset,
+            inset,
+            width - inset,
+            height - inset,
+            radius,
+            radius,
+            paint
+        )
+    }
+}
+
 /**
  * Visible icon-only destination. The real WhatsApp destination remains attached but transparent;
  * this view mirrors only its icon/badge/state and delegates click and long-click behavior to it.
  */
 private class GlassNavigationDestinationView(
     context: Context,
-    private val hostDestination: View,
+    private val slot: HomeVisualSlot<View>,
     private val tokens: LiquidGlassTokens
 ) : FrameLayout(context) {
+    private val hostDestination = slot.functionalSource
     private val density = resources.displayMetrics.density
+    private val iconBox = FrameLayout(context)
     private val icon = ImageView(context)
     private val badge = TextView(context)
     private var sourceImage: ImageView = requireNotNull(
@@ -122,12 +176,28 @@ private class GlassNavigationDestinationView(
         }
         setOnLongClickListener { hostDestination.performLongClick() }
 
-        val iconSize = (tokens.navigationIconDp * density).toInt()
+        val iconBoxSize = (tokens.navigationIconBoxDp * density).toInt()
+        val requestedIconDp = if (slot.kind == HomeDestinationKind.PROFILE) {
+            HomeIconBoxPolicy.normalizedAvatarSize(
+                tokens.navigationIconBoxDp,
+                tokens.navigationAvatarDp
+            )
+        } else {
+            HomeIconBoxPolicy.normalizedIconSize(
+                tokens.navigationIconBoxDp,
+                tokens.navigationIconDp
+            )
+        }
+        val iconSize = (requestedIconDp * density).toInt()
+        iconBox.isClickable = false
+        iconBox.isFocusable = false
+        iconBox.importantForAccessibility = IMPORTANT_FOR_ACCESSIBILITY_NO
+        addView(iconBox, LayoutParams(iconBoxSize, iconBoxSize, Gravity.CENTER))
         icon.scaleType = ImageView.ScaleType.CENTER_INSIDE
         icon.isClickable = false
         icon.isFocusable = false
         icon.importantForAccessibility = IMPORTANT_FOR_ACCESSIBILITY_NO
-        addView(icon, LayoutParams(iconSize, iconSize, Gravity.CENTER))
+        iconBox.addView(icon, LayoutParams(iconSize, iconSize, Gravity.CENTER))
 
         badge.gravity = Gravity.CENTER
         badge.includeFontPadding = false
@@ -143,16 +213,14 @@ private class GlassNavigationDestinationView(
             setColor(tokens.badgeColor)
             setStroke((1f * density).toInt().coerceAtLeast(1), tokens.badgeStrokeColor)
         }
-        addView(
+        iconBox.addView(
             badge,
             LayoutParams(
                 LayoutParams.WRAP_CONTENT,
                 (tokens.badgeMinSizeDp * density).toInt(),
-                Gravity.CENTER
+                Gravity.TOP or Gravity.END
             )
         )
-        badge.translationX = tokens.navigationIconDp * density * 0.43f
-        badge.translationY = -tokens.navigationIconDp * density * 0.43f
         refresh(active = false)
     }
 
@@ -167,7 +235,8 @@ private class GlassNavigationDestinationView(
         if (currentImage !== sourceImage || currentImage.drawable !== lastSourceDrawable) {
             sourceImage = currentImage
             lastSourceDrawable = currentImage.drawable
-            originalColorIcon = HomeVisualMirror.preservesOriginalColor(currentImage)
+            originalColorIcon = slot.kind == HomeDestinationKind.PROFILE ||
+                HomeVisualMirror.preservesOriginalColor(currentImage)
             icon.setImageDrawable(HomeVisualMirror.cloneDrawable(currentImage, resources))
             icon.scaleType = if (originalColorIcon) {
                 ImageView.ScaleType.CENTER_CROP
@@ -230,7 +299,8 @@ class GlassNavigationSurface(
     private val onDrawMetrics: (LocalizedGlassDrawMetrics) -> Unit,
     private val onRenderEvent: (LocalizedGlassEvent) -> Unit,
     private val onRenderFailure: (LocalizedGlassFailureStage, Throwable) -> Unit,
-    private val onSelectedDestinationChanged: (Int?) -> Unit
+    private val onSelectedDestinationChanged: (Int?) -> Unit,
+    private val onPillBoundsChanged: (Rect?) -> Unit
 ) : FrameLayout(context), ViewTreeObserver.OnPreDrawListener {
     private val destinationBounds = Rect()
     private val lastDestinationBounds = Rect()
@@ -247,6 +317,7 @@ class GlassNavigationSurface(
         onFailure = onRenderFailure
     )
     private val selectionPill = GlassSelectionPill(context, tokens)
+    private val rim = GlassOuterRimView(context, tokens)
     private val customDestinations = LinearLayout(context).apply {
         orientation = LinearLayout.HORIZONTAL
         gravity = Gravity.CENTER
@@ -262,9 +333,11 @@ class GlassNavigationSurface(
     }
     private var navigation: ViewGroup? = null
     private var navigationSnapshot: HostNavigationVisualSnapshot? = null
-    private var destinations: List<View> = emptyList()
+    private var destinations: List<HomeVisualSlot<View>> = emptyList()
     private var customDestinationViews: List<GlassNavigationDestinationView> = emptyList()
     private var selectedIndex: Int? = null
+    private var hiddenByScroll = false
+    private var hiddenByIme = false
 
     init {
         isClickable = false
@@ -272,27 +345,40 @@ class GlassNavigationSurface(
         clipChildren = false
         clipToPadding = false
         importantForAccessibility = IMPORTANT_FOR_ACCESSIBILITY_NO
+        outlineProvider = object : ViewOutlineProvider() {
+            override fun getOutline(view: View, outline: Outline) {
+                outline.setRoundRect(0, 0, view.width, view.height, view.height / 2f)
+            }
+        }
+        elevation = tokens.navigationElevationDp * resources.displayMetrics.density
         addView(backdrop, LayoutParams(LayoutParams.MATCH_PARENT, LayoutParams.MATCH_PARENT))
         addView(selectionPill, LayoutParams(1, 1))
         addView(customDestinations, LayoutParams(LayoutParams.MATCH_PARENT, LayoutParams.MATCH_PARENT))
+        addView(rim, LayoutParams(LayoutParams.MATCH_PARENT, LayoutParams.MATCH_PARENT))
     }
 
-    fun attachHostNavigation(hostNavigation: ViewGroup, destinationViews: List<View>) {
+    fun attachHostNavigation(
+        hostNavigation: ViewGroup,
+        destinationSlots: List<HomeVisualSlot<View>>
+    ) {
         check(navigation == null) { "host navigation already attached" }
-        val mirrorableIconCount = destinationViews.count {
-            HomeVisualMirror.primaryImage(it)?.drawable != null
+        check(destinationSlots.map { it.kind } == HomeVisualSlotMapper.ORDER) {
+            "visual destination order is not canonical"
+        }
+        val mirrorableIconCount = destinationSlots.count {
+            HomeVisualMirror.primaryImage(it.functionalSource)?.drawable != null
         }
         check(
-            HomeCustomNavigationPolicy.canReplace(destinationViews.size, mirrorableIconCount)
+            HomeCustomNavigationPolicy.canReplace(destinationSlots.size, mirrorableIconCount)
         ) {
             "one or more host destinations have no drawable icon"
         }
-        val mirrors = destinationViews.map { destination ->
-            GlassNavigationDestinationView(context, destination, tokens)
+        val mirrors = destinationSlots.map { slot ->
+            GlassNavigationDestinationView(context, slot, tokens)
         }
 
         navigation = hostNavigation
-        destinations = destinationViews
+        destinations = destinationSlots
         customDestinationViews = mirrors
         navigationSnapshot = HostNavigationVisualSnapshot(
             background = hostNavigation.background,
@@ -335,12 +421,32 @@ class GlassNavigationSurface(
         selectedIndex = null
         lastDestinationBounds.setEmpty()
         selectionPill.hide()
+        onPillBoundsChanged(null)
         return hostNavigation
     }
 
     fun selectedDestinationIndex(): Int? = selectedIndex
 
     fun visibleDestinationCount(): Int = customDestinationViews.size
+
+    fun setHiddenForIme(hidden: Boolean) {
+        hiddenByIme = hidden
+        animate().cancel()
+        if (hidden) {
+            visibility = View.INVISIBLE
+            alpha = 0f
+        } else {
+            applyScrollVisibility(animate = false)
+        }
+    }
+
+    fun setHiddenForScroll(hidden: Boolean) {
+        if (hiddenByScroll == hidden) return
+        hiddenByScroll = hidden
+        if (!hiddenByIme) applyScrollVisibility(animate = true)
+    }
+
+    fun isHiddenForScroll(): Boolean = hiddenByScroll
 
     override fun onPreDraw(): Boolean {
         updatePresentation(animate = true)
@@ -357,6 +463,7 @@ class GlassNavigationSurface(
         val destination = next?.let(customDestinationViews::getOrNull)
         if (destination == null || destination.width <= 0 || destination.height <= 0) {
             selectionPill.hide()
+            onPillBoundsChanged(null)
             return
         }
         destinationBounds.set(0, 0, destination.width, destination.height)
@@ -364,6 +471,7 @@ class GlassNavigationSurface(
         if (destinationBounds == lastDestinationBounds) return
         selectionPill.moveTo(destinationBounds, animate)
         lastDestinationBounds.set(destinationBounds)
+        onPillBoundsChanged(Rect(destinationBounds))
     }
 
     private fun isDestinationSelected(view: View): Boolean {
@@ -385,7 +493,7 @@ class GlassNavigationSurface(
         var activeIndex = -1
         var activeCount = 0
         for (index in destinations.indices) {
-            if (!isDestinationSelected(destinations[index])) continue
+            if (!isDestinationSelected(destinations[index].functionalSource)) continue
             activeIndex = index
             activeCount++
         }
@@ -395,5 +503,29 @@ class GlassNavigationSurface(
             destinationCount = destinations.size,
             previous = previous
         )
+    }
+
+    private fun applyScrollVisibility(animate: Boolean) {
+        animate().cancel()
+        if (hiddenByIme) {
+            visibility = View.INVISIBLE
+            return
+        }
+        val targetY = if (hiddenByScroll) height * 1.35f else 0f
+        if (!animate) {
+            translationY = targetY
+            alpha = if (hiddenByScroll) 0f else 1f
+            visibility = if (hiddenByScroll) View.INVISIBLE else View.VISIBLE
+            return
+        }
+        visibility = View.VISIBLE
+        animate()
+            .translationY(targetY)
+            .alpha(if (hiddenByScroll) 0f else 1f)
+            .setDuration(tokens.navigationVisibilityDurationMs)
+            .withEndAction {
+                if (hiddenByScroll && !hiddenByIme) visibility = View.INVISIBLE
+            }
+            .start()
     }
 }

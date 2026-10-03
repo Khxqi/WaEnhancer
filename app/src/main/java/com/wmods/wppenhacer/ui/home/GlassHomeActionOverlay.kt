@@ -16,6 +16,16 @@ private data class HostActionVisualSnapshot(
     val importantForAccessibility: Int
 )
 
+enum class HomeActionPlacement {
+    MIRROR_HOST,
+    FLOATING_ABOVE_NAVIGATION
+}
+
+data class GlassHomeActionBinding(
+    val hostAction: View,
+    val placement: HomeActionPlacement
+)
+
 private class GlassHomeActionButton(
     context: Context,
     private val hostAction: View,
@@ -79,9 +89,11 @@ private class GlassHomeActionButton(
 class GlassHomeActionOverlay(
     context: Context,
     private val positionRoot: ViewGroup,
-    private val hostActions: List<View>,
+    private val bindings: List<GlassHomeActionBinding>,
+    private val navigationAnchor: View,
     private val tokens: LiquidGlassTokens
 ) : FrameLayout(context), ViewTreeObserver.OnPreDrawListener {
+    private val hostActions = bindings.map { it.hostAction }
     private val snapshots = hostActions.associateWith { action ->
         HostActionVisualSnapshot(
             alpha = action.alpha,
@@ -91,6 +103,7 @@ class GlassHomeActionOverlay(
     private val buttons = hostActions.map { GlassHomeActionButton(context, it, tokens) }
     private val overlayLocation = IntArray(2)
     private val hostLocation = IntArray(2)
+    private val anchorLocation = IntArray(2)
     private var attached = false
     private var active = false
 
@@ -108,8 +121,9 @@ class GlassHomeActionOverlay(
         try {
             attached = true
             parent.addView(this, LayoutParams(LayoutParams.MATCH_PARENT, LayoutParams.MATCH_PARENT))
-            hostActions.forEachIndexed { index, action ->
-                val size = (tokens.actionSizeDp * resources.displayMetrics.density).toInt()
+            bindings.forEachIndexed { index, binding ->
+                val size = (buttonSizeDp(binding.placement) *
+                    resources.displayMetrics.density).toInt()
                 addView(buttons[index], LayoutParams(size, size))
             }
             positionRoot.viewTreeObserver.addOnPreDrawListener(this)
@@ -137,6 +151,13 @@ class GlassHomeActionOverlay(
 
     fun actionCount(): Int = buttons.size
 
+    fun hasCustomFab(): Boolean = bindings.any {
+        it.placement == HomeActionPlacement.FLOATING_ABOVE_NAVIGATION
+    }
+
+    fun isHostSuppressed(hostAction: View): Boolean =
+        active && hostAction in hostActions && hostAction.alpha == 0f
+
     fun setActive(value: Boolean) {
         if (!attached || active == value) return
         active = value
@@ -160,14 +181,28 @@ class GlassHomeActionOverlay(
     private fun updatePositions() {
         if (!attached || !active || width <= 0 || height <= 0) return
         getLocationInWindow(overlayLocation)
-        val buttonSize = tokens.actionSizeDp * resources.displayMetrics.density
-        hostActions.forEachIndexed { index, action ->
-            action.getLocationInWindow(hostLocation)
-            buttons[index].x = hostLocation[0] - overlayLocation[0] +
-                (action.width - buttonSize) / 2f
-            buttons[index].y = hostLocation[1] - overlayLocation[1] +
-                (action.height - buttonSize) / 2f
-            buttons[index].visibility = if (action.visibility == View.VISIBLE) {
+        navigationAnchor.getLocationInWindow(anchorLocation)
+        bindings.forEachIndexed { index, binding ->
+            val action = binding.hostAction
+            val buttonSize = buttonSizeDp(binding.placement) * resources.displayMetrics.density
+            if (binding.placement == HomeActionPlacement.MIRROR_HOST) {
+                action.getLocationInWindow(hostLocation)
+                buttons[index].x = hostLocation[0] - overlayLocation[0] +
+                    (action.width - buttonSize) / 2f
+                buttons[index].y = hostLocation[1] - overlayLocation[1] +
+                    (action.height - buttonSize) / 2f
+            } else {
+                buttons[index].x = anchorLocation[0] - overlayLocation[0] +
+                    navigationAnchor.width - buttonSize
+                buttons[index].y = anchorLocation[1] - overlayLocation[1] -
+                    buttonSize - tokens.floatingActionGapDp * resources.displayMetrics.density
+            }
+            val anchorAvailable = binding.placement !=
+                HomeActionPlacement.FLOATING_ABOVE_NAVIGATION ||
+                (navigationAnchor.visibility == View.VISIBLE && navigationAnchor.alpha > 0.5f)
+            buttons[index].visibility = if (
+                action.visibility == View.VISIBLE && anchorAvailable
+            ) {
                 View.VISIBLE
             } else {
                 View.GONE
@@ -175,4 +210,11 @@ class GlassHomeActionOverlay(
             buttons[index].refresh()
         }
     }
+
+    private fun buttonSizeDp(placement: HomeActionPlacement): Float =
+        if (placement == HomeActionPlacement.FLOATING_ABOVE_NAVIGATION) {
+            tokens.floatingActionSizeDp
+        } else {
+            tokens.actionSizeDp
+        }
 }

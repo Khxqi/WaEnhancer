@@ -105,7 +105,7 @@ class RuntimeShaderGlassRenderer : GlassRenderer {
     ) {
         if (backdrop == null) return fallback.draw(canvas, bounds, shape, style)
         shader.setInputShader("backdrop", backdrop)
-        configureGlassShader(shader, bounds, style)
+        configureGlassShader(shader, bounds, style, shape = shape)
 
         val radius = radius(bounds, shape, style.sanitized().cornerRadiusPx)
         path.rewind()
@@ -132,10 +132,11 @@ internal object GlassShaderProgram {
             uniform float depth;
             uniform float saturation;
             uniform float progress;
+            uniform float capsuleGeometry;
             layout(color) uniform half4 tint;
 
             half4 sampleSoft(float2 p, float radius) {
-                float r = min(radius, 28.0);
+                float r = min(radius * 0.55, 32.0);
                 half4 c = backdrop.eval(p) * 0.24;
                 c += backdrop.eval(p + float2(r, 0.0)) * 0.12;
                 c += backdrop.eval(p - float2(r, 0.0)) * 0.12;
@@ -149,20 +150,33 @@ internal object GlassShaderProgram {
             }
 
             half4 main(float2 p) {
-                float2 q = (p - center) / max(halfSize, float2(1.0));
-                float edge = clamp(max(abs(q.x), abs(q.y)), 0.0, 1.0);
-                float2 n = normalize(q + float2(0.0001, 0.0001));
-                float lens = smoothstep(0.28, 1.0, edge);
+                float2 local = p - center;
+                float halfSegment = max(halfSize.x - halfSize.y, 0.0);
+                float2 nearest = float2(clamp(local.x, -halfSegment, halfSegment), 0.0);
+                float2 radial = local - nearest;
+                float radialLength = max(length(radial), 0.001);
+                float capsuleEdge = clamp(radialLength / max(halfSize.y, 1.0), 0.0, 1.0);
+                float2 capsuleNormal = radial / radialLength;
+                float2 rectangular = local / max(halfSize, float2(1.0));
+                float rectangularEdge = clamp(max(abs(rectangular.x), abs(rectangular.y)), 0.0, 1.0);
+                float2 rectangularNormal = normalize(rectangular + float2(0.0001, 0.0001));
+                float edge = mix(rectangularEdge, capsuleEdge, capsuleGeometry);
+                float2 n = normalize(mix(rectangularNormal, capsuleNormal, capsuleGeometry));
+                float lens = smoothstep(0.78, 1.0, edge);
                 float pulse = 0.92 + 0.08 * sin(progress * 6.2831853);
-                float2 refracted = p - n * refraction * lens * lens * pulse;
-                half4 color = sampleSoft(refracted, blurRadius * (0.28 + 0.42 * depth));
+                float2 refracted = p - n * refraction * lens * lens * lens * pulse;
+                half4 color = sampleSoft(refracted, blurRadius * (0.72 + 0.20 * depth));
                 half luminance = dot(color.rgb, half3(0.2126, 0.7152, 0.0722));
                 color.rgb = mix(half3(luminance), color.rgb, half(saturation));
                 color = mix(color, tint, half(tintOpacity));
-                float rim = smoothstep(0.72, 1.0, edge);
+                float rim = smoothstep(0.86, 1.0, edge);
                 float light = pow(max(0.0, dot(n, normalize(float2(-0.62, -0.78)))), 3.0);
-                color.rgb += half3(rim * edgeIntensity * 0.12);
-                color.rgb += half3(rim * light * highlightIntensity * 0.38);
+                float upper = 1.0 - smoothstep(-0.95, 0.35, n.y);
+                float lower = smoothstep(0.20, 0.95, n.y);
+                color.rgb += half3(rim * edgeIntensity * 0.10);
+                color.rgb += half3(rim * upper * highlightIntensity * 0.34);
+                color.rgb += half3(rim * light * highlightIntensity * 0.22);
+                color.rgb *= half(1.0 - rim * lower * depth * 0.055);
                 color.a = 1.0;
                 return color;
             }
@@ -174,7 +188,8 @@ internal fun configureGlassShader(
     shader: RuntimeShader,
     bounds: RectF,
     style: GlassStyle,
-    animationProgress: Float = style.animationProgress
+    animationProgress: Float = style.animationProgress,
+    shape: GlassShape = GlassShape.Rounded
 ) {
     val safe = style.sanitized()
     shader.setFloatUniform("center", bounds.centerX(), bounds.centerY())
@@ -187,6 +202,10 @@ internal fun configureGlassShader(
     shader.setFloatUniform("depth", safe.depth)
     shader.setFloatUniform("saturation", safe.saturation)
     shader.setFloatUniform("progress", animationProgress.coerceIn(0f, 1f))
+    shader.setFloatUniform(
+        "capsuleGeometry",
+        if (shape == GlassShape.Capsule || shape == GlassShape.Circle) 1f else 0f
+    )
     shader.setColorUniform("tint", safe.tintColor)
 }
 

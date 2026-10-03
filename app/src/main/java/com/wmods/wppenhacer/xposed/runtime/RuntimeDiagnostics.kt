@@ -38,7 +38,7 @@ object RuntimeDiagnostics {
         val capabilityStates = capabilities.associateBy { it.id }
 
         return JSONObject().apply {
-            put("schemaVersion", 10)
+            put("schemaVersion", 11)
             put("moduleVersion", session?.moduleVersion ?: BuildConfig.VERSION_NAME)
             put("whatsAppVersionName", session?.whatsAppVersionName ?: JSONObject.NULL)
             put("whatsAppVersionCode", session?.whatsAppVersionCode ?: JSONObject.NULL)
@@ -193,6 +193,30 @@ object RuntimeDiagnostics {
                 put("activeDestinationIndex", home.activeDestinationIndex ?: JSONObject.NULL)
                 put("badgeCountDetected", home.badgeCountDetected)
                 put("customTopActionCount", home.customTopActionCount)
+                put(
+                    "visualDestinationOrder",
+                    home.visualDestinationOrder ?: JSONObject.NULL
+                )
+                put("profileSourceDiscovered", home.profileSourceDiscovered)
+                put("profileActionMapped", home.profileActionMapped)
+                put("hostFabDetected", home.hostFabDetected)
+                put("hostFabVisualSuppressed", home.hostFabVisualSuppressed)
+                put("customFabAttached", home.customFabAttached)
+                put("outerTintOpacity", home.outerTintOpacity ?: JSONObject.NULL)
+                put(
+                    "productionRefractionStrengthDp",
+                    home.productionRefractionStrengthDp ?: JSONObject.NULL
+                )
+                put(
+                    "productionBlurStrengthDp",
+                    home.productionBlurStrengthDp ?: JSONObject.NULL
+                )
+                put("barHeightDp", home.barHeightDp ?: JSONObject.NULL)
+                put(
+                    "activePillBounds",
+                    home.activePillBounds?.let(DiagnosticSanitizer::sanitize) ?: JSONObject.NULL
+                )
+                put("scrollHideShowInstalled", home.scrollHideShowInstalled)
                 put("glassSurfaceCount", home.glassSurfaceCount)
                 put("hierarchyCaptureCount", home.hierarchyCaptureCount)
                 put("lastCaptureMs", home.lastCaptureMs ?: JSONObject.NULL)

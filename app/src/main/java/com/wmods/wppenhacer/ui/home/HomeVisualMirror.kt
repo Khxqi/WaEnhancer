@@ -31,6 +31,10 @@ internal object HomeVisualMirror {
         source.drawable is BitmapDrawable ||
             source.scaleType == ImageView.ScaleType.CENTER_CROP
 
+    fun isPhotoLike(source: ImageView): Boolean =
+        source.drawable is BitmapDrawable ||
+            source.drawable?.javaClass?.simpleName?.contains("bitmap", ignoreCase = true) == true
+
     fun badgeState(root: View): HostBadgeState {
         val badgeRoot = descendants(root).firstOrNull { resourceNameContains(it, "badge") }
             ?: return HostBadgeState(visible = false, text = null)
