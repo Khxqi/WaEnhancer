@@ -572,5 +572,5 @@
     <string name="runtime_glass_prototype_title">Enable Liquid Glass prototype</string>
     <string name="runtime_glass_prototype_summary">Experimental, off by default. Adds one non-touchable test surface to official WhatsApp after restart.</string>
     <string name="runtime_ios_home_redesign_title">Enable iOS Home redesign</string>
-    <string name="runtime_ios_home_redesign_summary">Phase 5A development preview. Restyles only the WhatsApp Home screen and uses the real host navigation inside one localized Liquid Glass surface. Restart WhatsApp after changing.</string>
+    <string name="runtime_ios_home_redesign_summary">Phase 5A development preview. Replaces the visible Home tabs with an icon-only Liquid Glass bar while preserving WhatsApp routing, badges and accessibility underneath. Restart WhatsApp after changing.</string>
 </resources>

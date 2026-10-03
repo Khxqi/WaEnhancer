@@ -20,11 +20,14 @@ import com.wmods.wppenhacer.ui.glass.LocalizedGlassEvent
 import com.wmods.wppenhacer.ui.glass.LocalizedGlassFailureStage
 import com.wmods.wppenhacer.ui.glass.LocalizedGlassGeometry
 import com.wmods.wppenhacer.ui.glass.LocalizedGlassMetrics
+import com.wmods.wppenhacer.ui.home.GlassHomeActionOverlay
 import com.wmods.wppenhacer.ui.home.GlassNavigationSurface
 import com.wmods.wppenhacer.ui.home.HomeBottomInsetPolicy
+import com.wmods.wppenhacer.ui.home.HomeCustomNavigationPolicy
 import com.wmods.wppenhacer.ui.home.HomeGlassSurfaceOwnership
 import com.wmods.wppenhacer.ui.home.HomeNavigationShape
 import com.wmods.wppenhacer.ui.home.HomeNavigationValidator
+import com.wmods.wppenhacer.ui.home.HomeVisualMirror
 import com.wmods.wppenhacer.ui.home.LiquidGlassTokens
 import java.util.WeakHashMap
 import kotlin.math.max
@@ -114,7 +117,7 @@ private data class ChromeSnapshot(
     val toolbarLogoVisibility: Int,
     val titleView: TextView?,
     val chatDestinationIndex: Int?,
-    val actionBackgrounds: Map<View, Drawable?>,
+    val actionOverlay: GlassHomeActionOverlay?,
     val searchView: View?,
     val searchBackground: Drawable?
 )
@@ -174,7 +177,11 @@ private class IosHomeChromeController(
                 status = HomeRedesignStatus.DETACHED,
                 lifecycleCallbackRegistered = false,
                 floatingBottomBarAttached = false,
-                glassSurfaceCount = 0
+                glassSurfaceCount = 0,
+                customNavigationVisible = false,
+                hostNavigationVisuallyHidden = false,
+                visibleNavigationLabelCount = 0,
+                customTopActionCount = 0
             )
         }
         RuntimeTrace.event("home-redesign-controller-stop")
@@ -322,6 +329,7 @@ private class IosHomeChromeController(
             chrome = applyHomeChrome(
                 activity,
                 contentRoot,
+                surfaceParent,
                 tokens,
                 discovery.chatDestinationIndex
             )
@@ -354,6 +362,11 @@ private class IosHomeChromeController(
                     contentPaddingApplied = paddedContent != null,
                     toolbarStyled = chrome?.toolbar != null,
                     searchSurfaceStyled = chrome?.searchView != null,
+                    customNavigationVisible = surface.visibleDestinationCount() ==
+                        discovery.destinations.size,
+                    hostNavigationVisuallyHidden = navigation.alpha == 0f,
+                    visibleNavigationLabelCount = HomeCustomNavigationPolicy.VISIBLE_LABEL_COUNT,
+                    customTopActionCount = chrome?.actionOverlay?.actionCount() ?: 0,
                     failure = null
                 )
             }
@@ -527,11 +540,11 @@ private class IosHomeChromeController(
     private fun applyHomeChrome(
         activity: Activity,
         contentRoot: ViewGroup,
+        surfaceParent: FrameLayout,
         tokens: LiquidGlassTokens,
         chatDestinationIndex: Int?
     ): ChromeSnapshot {
         val contentBackground = contentRoot.background
-        contentRoot.setBackgroundColor(tokens.homeBackgroundColor)
         val toolbarId = activity.resources.getIdentifier("toolbar", "id", activity.packageName)
         val toolbar = toolbarId.takeIf { it != 0 }
             ?.let { contentRoot.findViewById<View>(it) as? ViewGroup }
@@ -540,23 +553,6 @@ private class IosHomeChromeController(
         val logoId = activity.resources.getIdentifier("toolbar_logo", "id", activity.packageName)
         val logo = logoId.takeIf { it != 0 }?.let { toolbar?.findViewById<View>(it) }
         val logoVisibility = logo?.visibility ?: View.VISIBLE
-        val title = if (toolbar != null && logo != null && chatDestinationIndex != null) {
-            createChatsTitle(activity, toolbar, tokens)
-        } else null
-        val actionBackgrounds = linkedMapOf<View, Drawable?>()
-        toolbar?.let { bar ->
-            bar.setBackgroundColor(tokens.homeBackgroundColor)
-            bar.elevation = 0f
-            clickableLeafDestinations(bar).forEach { action ->
-                actionBackgrounds[action] = action.background
-                action.background = roundedLayer(
-                    tokens.actionFillColor,
-                    tokens.actionStrokeColor,
-                    tokens.actionSizeDp * activity.resources.displayMetrics.density / 2f,
-                    activity.resources.displayMetrics.density
-                )
-            }
-        }
         val searchView = listOf("search_bar", "search_view", "search_container")
             .asSequence()
             .map { activity.resources.getIdentifier(it, "id", activity.packageName) }
@@ -564,25 +560,92 @@ private class IosHomeChromeController(
             .mapNotNull { contentRoot.findViewById<View>(it) }
             .firstOrNull()
         val searchBackground = searchView?.background
-        searchView?.background = roundedLayer(
-            tokens.actionFillColor,
-            tokens.actionStrokeColor,
-            tokens.searchRadiusDp * activity.resources.displayMetrics.density,
-            activity.resources.displayMetrics.density
-        )
-        return ChromeSnapshot(
-            contentBackground = contentBackground,
-            toolbar = toolbar,
-            toolbarBackground = toolbarBackground,
-            toolbarElevation = toolbarElevation,
-            toolbarLogo = logo,
-            toolbarLogoVisibility = logoVisibility,
-            titleView = title,
-            chatDestinationIndex = chatDestinationIndex,
-            actionBackgrounds = actionBackgrounds,
-            searchView = searchView,
-            searchBackground = searchBackground
-        )
+        var title: TextView? = null
+        var actionOverlay: GlassHomeActionOverlay? = null
+        return try {
+            contentRoot.setBackgroundColor(tokens.homeBackgroundColor)
+            toolbar?.let { bar ->
+                bar.setBackgroundColor(tokens.homeBackgroundColor)
+                bar.elevation = 0f
+            }
+            title = if (toolbar != null && logo != null && chatDestinationIndex != null) {
+                createChatsTitle(activity, toolbar, tokens)
+            } else null
+            searchView?.background = roundedLayer(
+                tokens.actionFillColor,
+                tokens.actionStrokeColor,
+                tokens.searchRadiusDp * activity.resources.displayMetrics.density,
+                activity.resources.displayMetrics.density
+            )
+            val actions = if (chatDestinationIndex != null) {
+                toolbar?.let { discoverTopActions(it, surfaceParent) }.orEmpty()
+            } else {
+                emptyList()
+            }
+            actionOverlay = actions.takeIf { it.isNotEmpty() }?.let { hostActions ->
+                GlassHomeActionOverlay(activity, requireNotNull(toolbar), hostActions, tokens).also {
+                    it.attach(surfaceParent)
+                }
+            }
+            ChromeSnapshot(
+                contentBackground = contentBackground,
+                toolbar = toolbar,
+                toolbarBackground = toolbarBackground,
+                toolbarElevation = toolbarElevation,
+                toolbarLogo = logo,
+                toolbarLogoVisibility = logoVisibility,
+                titleView = title,
+                chatDestinationIndex = chatDestinationIndex,
+                actionOverlay = actionOverlay,
+                searchView = searchView,
+                searchBackground = searchBackground
+            )
+        } catch (throwable: Throwable) {
+            restoreChrome(
+                contentRoot,
+                ChromeSnapshot(
+                    contentBackground = contentBackground,
+                    toolbar = toolbar,
+                    toolbarBackground = toolbarBackground,
+                    toolbarElevation = toolbarElevation,
+                    toolbarLogo = logo,
+                    toolbarLogoVisibility = logoVisibility,
+                    titleView = title,
+                    chatDestinationIndex = chatDestinationIndex,
+                    actionOverlay = actionOverlay,
+                    searchView = searchView,
+                    searchBackground = searchBackground
+                )
+            )
+            throw throwable
+        }
+    }
+
+    private fun discoverTopActions(
+        toolbar: ViewGroup,
+        surfaceParent: FrameLayout
+    ): List<View> {
+        val density = toolbar.resources.displayMetrics.density
+        val parentWidth = surfaceParent.width.coerceAtLeast(1)
+        return clickableLeafDestinations(toolbar)
+            .filter { action ->
+                val widthDp = action.width / density
+                val heightDp = action.height / density
+                widthDp in 28f..72f && heightDp in 28f..72f &&
+                    HomeVisualMirror.primaryImage(action)?.drawable != null &&
+                    !HomeVisualMirror.resourceNameContains(action, "logo")
+            }
+            .filter { action ->
+                val location = IntArray(2)
+                action.getLocationInWindow(location)
+                location[0] + action.width / 2 > parentWidth * 0.42f
+            }
+            .sortedBy { action ->
+                val location = IntArray(2)
+                action.getLocationInWindow(location)
+                location[0]
+            }
+            .take(4)
     }
 
     private fun createChatsTitle(
@@ -616,6 +679,7 @@ private class IosHomeChromeController(
         val showChats = selected != null && selected == chrome.chatDestinationIndex
         chrome.titleView?.visibility = if (showChats) View.VISIBLE else View.GONE
         chrome.toolbarLogo?.visibility = if (showChats) View.INVISIBLE else chrome.toolbarLogoVisibility
+        chrome.actionOverlay?.setActive(showChats)
     }
 
     private fun roundedLayer(fill: Int, stroke: Int, radius: Float, density: Float) =
@@ -634,7 +698,7 @@ private class IosHomeChromeController(
             chrome.titleView?.let { title -> runCatching { toolbar.removeView(title) } }
         }
         chrome.toolbarLogo?.visibility = chrome.toolbarLogoVisibility
-        chrome.actionBackgrounds.forEach { (view, background) -> view.background = background }
+        chrome.actionOverlay?.detach()
         chrome.searchView?.background = chrome.searchBackground
     }
 
@@ -673,6 +737,10 @@ private class IosHomeChromeController(
                 stockNavMovedIntoSurface = false,
                 floatingBottomBarAttached = false,
                 glassSurfaceCount = attachments.size,
+                customNavigationVisible = false,
+                hostNavigationVisuallyHidden = false,
+                visibleNavigationLabelCount = 0,
+                customTopActionCount = 0,
                 failure = summary
             )
         }
@@ -712,7 +780,11 @@ private class IosHomeChromeController(
                 glassSurfaceCount = attachments.size,
                 contentPaddingApplied = false,
                 toolbarStyled = false,
-                searchSurfaceStyled = false
+                searchSurfaceStyled = false,
+                customNavigationVisible = false,
+                hostNavigationVisuallyHidden = false,
+                visibleNavigationLabelCount = 0,
+                customTopActionCount = 0
             )
         }
         RuntimeTrace.event("home-redesign-detached", activity.javaClass.name)

@@ -38,7 +38,7 @@ object RuntimeDiagnostics {
         val capabilityStates = capabilities.associateBy { it.id }
 
         return JSONObject().apply {
-            put("schemaVersion", 9)
+            put("schemaVersion", 10)
             put("moduleVersion", session?.moduleVersion ?: BuildConfig.VERSION_NAME)
             put("whatsAppVersionName", session?.whatsAppVersionName ?: JSONObject.NULL)
             put("whatsAppVersionCode", session?.whatsAppVersionCode ?: JSONObject.NULL)
@@ -187,8 +187,12 @@ object RuntimeDiagnostics {
                 put("destinationCount", home.destinationCount)
                 put("stockNavMovedIntoSurface", home.stockNavMovedIntoSurface)
                 put("floatingBottomBarAttached", home.floatingBottomBarAttached)
+                put("customNavigationVisible", home.customNavigationVisible)
+                put("hostNavigationVisuallyHidden", home.hostNavigationVisuallyHidden)
+                put("visibleNavigationLabelCount", home.visibleNavigationLabelCount)
                 put("activeDestinationIndex", home.activeDestinationIndex ?: JSONObject.NULL)
                 put("badgeCountDetected", home.badgeCountDetected)
+                put("customTopActionCount", home.customTopActionCount)
                 put("glassSurfaceCount", home.glassSurfaceCount)
                 put("hierarchyCaptureCount", home.hierarchyCaptureCount)
                 put("lastCaptureMs", home.lastCaptureMs ?: JSONObject.NULL)

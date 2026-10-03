@@ -21,8 +21,12 @@ data class HomeRuntimeSnapshot(
     val destinationCount: Int = 0,
     val stockNavMovedIntoSurface: Boolean = false,
     val floatingBottomBarAttached: Boolean = false,
+    val customNavigationVisible: Boolean = false,
+    val hostNavigationVisuallyHidden: Boolean = false,
+    val visibleNavigationLabelCount: Int = 0,
     val activeDestinationIndex: Int? = null,
     val badgeCountDetected: Int = 0,
+    val customTopActionCount: Int = 0,
     val glassSurfaceCount: Int = 0,
     val hierarchyCaptureCount: Long = 0,
     val lastCaptureMs: Double? = null,
@@ -51,4 +55,3 @@ object HomeRuntimeState {
 
     fun snapshot(): HomeRuntimeSnapshot = snapshot
 }
-

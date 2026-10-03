@@ -8,10 +8,13 @@ data class LiquidGlassTokens(
     val navigationTintColor: Int,
     val navigationTintOpacity: Float,
     val selectionFillColor: Int,
+    val selectionHighlightColor: Int,
     val selectionStrokeColor: Int,
+    val activeNavigationIconColor: Int,
     val primaryContentColor: Int,
     val secondaryContentColor: Int,
     val actionFillColor: Int,
+    val actionHighlightColor: Int,
     val actionStrokeColor: Int,
     val blurDp: Float,
     val refractionDp: Float,
@@ -22,8 +25,20 @@ data class LiquidGlassTokens(
     val horizontalMarginDp: Float,
     val bottomMarginDp: Float,
     val navigationHeightDp: Float,
-    val selectionInsetDp: Float,
+    val navigationIconDp: Float,
+    val navigationHorizontalContentInsetDp: Float,
+    val selectionHorizontalInsetDp: Float,
+    val selectionVerticalInsetDp: Float,
+    val inactiveIconAlpha: Float,
+    val badgeColor: Int,
+    val badgeTextColor: Int,
+    val badgeStrokeColor: Int,
+    val badgeMinSizeDp: Float,
+    val badgeDotSizeDp: Float,
+    val badgeTextSp: Float,
     val actionSizeDp: Float,
+    val actionIconDp: Float,
+    val actionElevationDp: Float,
     val searchRadiusDp: Float,
     val titleTextSp: Float,
     val selectionDurationMs: Long
@@ -46,25 +61,40 @@ data class LiquidGlassTokens(
 
         val DARK = LiquidGlassTokens(
             homeBackgroundColor = 0xFF07080A.toInt(),
-            navigationTintColor = 0xFF17191D.toInt(),
-            navigationTintOpacity = 0.30f,
-            selectionFillColor = 0xA80A0B0E.toInt(),
-            selectionStrokeColor = 0x40FFFFFF,
+            navigationTintColor = 0xFFE2E4E8.toInt(),
+            navigationTintOpacity = 0.22f,
+            selectionFillColor = 0xDC101216.toInt(),
+            selectionHighlightColor = 0xC82C2F35.toInt(),
+            selectionStrokeColor = 0x42FFFFFF,
+            activeNavigationIconColor = Color.WHITE,
             primaryContentColor = Color.WHITE,
-            secondaryContentColor = 0xFFB8BAC0.toInt(),
-            actionFillColor = 0x521C1E23,
-            actionStrokeColor = 0x38FFFFFF,
-            blurDp = 26f,
-            refractionDp = 5.5f,
-            edgeIntensity = 0.58f,
-            highlightIntensity = 0.40f,
-            depth = 0.82f,
-            saturation = 1.10f,
-            horizontalMarginDp = 18f,
+            secondaryContentColor = 0xFFD5D7DC.toInt(),
+            actionFillColor = 0x40E7E8EB,
+            actionHighlightColor = 0x70FFFFFF,
+            actionStrokeColor = 0x52FFFFFF,
+            blurDp = 30f,
+            refractionDp = 2.25f,
+            edgeIntensity = 0.46f,
+            highlightIntensity = 0.42f,
+            depth = 0.76f,
+            saturation = 0.84f,
+            horizontalMarginDp = 16f,
             bottomMarginDp = 12f,
-            navigationHeightDp = 76f,
-            selectionInsetDp = 7f,
-            actionSizeDp = 40f,
+            navigationHeightDp = 64f,
+            navigationIconDp = 29f,
+            navigationHorizontalContentInsetDp = 5f,
+            selectionHorizontalInsetDp = 5f,
+            selectionVerticalInsetDp = 6f,
+            inactiveIconAlpha = 0.82f,
+            badgeColor = 0xFF25D366.toInt(),
+            badgeTextColor = 0xFF07130B.toInt(),
+            badgeStrokeColor = 0x70FFFFFF,
+            badgeMinSizeDp = 18f,
+            badgeDotSizeDp = 9f,
+            badgeTextSp = 11f,
+            actionSizeDp = 38f,
+            actionIconDp = 20f,
+            actionElevationDp = 2f,
             searchRadiusDp = 18f,
             titleTextSp = 31f,
             selectionDurationMs = 220L
@@ -74,14 +104,18 @@ data class LiquidGlassTokens(
             homeBackgroundColor = 0xFFF5F5F7.toInt(),
             navigationTintColor = Color.WHITE,
             navigationTintOpacity = 0.25f,
-            selectionFillColor = 0xB8FFFFFF.toInt(),
-            selectionStrokeColor = 0x55FFFFFF,
+            selectionFillColor = 0xD01A1B1F.toInt(),
+            selectionHighlightColor = 0xC8383A40.toInt(),
+            selectionStrokeColor = 0x48FFFFFF,
+            activeNavigationIconColor = Color.WHITE,
             primaryContentColor = 0xFF111216.toInt(),
             secondaryContentColor = 0xFF62646B.toInt(),
             actionFillColor = 0x66FFFFFF,
+            actionHighlightColor = 0xD8FFFFFF.toInt(),
             actionStrokeColor = 0x70FFFFFF,
             edgeIntensity = 0.66f,
-            saturation = 1.06f
+            saturation = 0.94f,
+            badgeTextColor = Color.WHITE
         )
     }
 }
@@ -161,4 +195,15 @@ object HomeBottomInsetPolicy {
 object HomeGlassSurfaceOwnership {
     fun canAttach(existingSurfaceCount: Int, alreadyAttached: Boolean): Boolean =
         existingSurfaceCount == 0 && !alreadyAttached
+}
+
+object HomeCustomNavigationPolicy {
+    const val VISIBLE_LABEL_COUNT = 0
+
+    fun canReplace(hostDestinationCount: Int, mirrorableIconCount: Int): Boolean {
+        val supportedCount = HomeNavigationValidator.MIN_DESTINATIONS..
+            HomeNavigationValidator.MAX_DESTINATIONS
+        return hostDestinationCount in supportedCount &&
+            mirrorableIconCount == hostDestinationCount
+    }
 }

@@ -99,6 +99,26 @@ class HomeRedesignTest {
         assertFalse(HomeGlassSurfaceOwnership.canAttach(0, alreadyAttached = true))
     }
 
+    @Test
+    fun customNavigationRequiresOneMirrorableIconPerHostDestinationAndNoLabels() {
+        assertTrue(HomeCustomNavigationPolicy.canReplace(4, 4))
+        assertTrue(HomeCustomNavigationPolicy.canReplace(5, 5))
+        assertFalse(HomeCustomNavigationPolicy.canReplace(4, 3))
+        assertFalse(HomeCustomNavigationPolicy.canReplace(2, 2))
+        assertEquals(0, HomeCustomNavigationPolicy.VISIBLE_LABEL_COUNT)
+    }
+
+    @Test
+    fun productionTokensStaySlimNeutralAndUseDarkSelectionInBothModes() {
+        listOf(LiquidGlassTokens.DARK, LiquidGlassTokens.LIGHT).forEach { tokens ->
+            assertTrue(tokens.navigationHeightDp <= 68f)
+            assertTrue(tokens.refractionDp < 3f)
+            assertTrue(tokens.navigationTintOpacity in 0.15f..0.30f)
+            assertEquals(0xFFFFFFFF.toInt(), tokens.activeNavigationIconColor)
+            assertTrue((tokens.selectionFillColor ushr 24) >= 0xB0)
+        }
+    }
+
     private fun config(enableHome: Boolean) = RuntimeConfigSnapshot(
         disableAllHooks = false,
         disableVisualModifications = false,
@@ -109,4 +129,3 @@ class HomeRedesignTest {
         enableIosHomeRedesign = enableHome
     )
 }
-
