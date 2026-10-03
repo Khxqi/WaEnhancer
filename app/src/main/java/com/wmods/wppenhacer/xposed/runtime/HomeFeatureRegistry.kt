@@ -485,7 +485,7 @@ private class IosHomeChromeController(
                             barHiddenByScroll = hidden
                         )
                     }
-                ).also { it.start() }
+                }.also { it.start() }
             }
             val attachment = HomeAttachment(
                 activity = activity,
